@@ -64,40 +64,7 @@ void OptionalParameterGroup::loadValue(
 void OptionalParameterGroup::renderHtml(
   bool dataArrived, WebRequestWrapper* webRequestWrapper)
 {
-    if (this->label != nullptr)
-    {
-      String content = getStartTemplate();
-      content.replace("{b}", this->label);
-      content.replace("{i}", this->getId());
-      content.replace("{v}", this->_active ? "active" : "inactive");
-      if (this->_active)
-      {
-        content.replace("{cb}", "hide");
-        content.replace("{cf}", "");
-      }
-      else
-      {
-        content.replace("{cb}", "");
-        content.replace("{cf}", "hide");
-      }
-      webRequestWrapper->sendContent(content);
-    }
-    ConfigItem* current = this->_firstItem;
-    while (current != nullptr)
-    {
-      if (current->visible)
-      {
-        current->renderHtml(dataArrived, webRequestWrapper);
-      }
-      current = this->getNextItemOf(current);
-    }
-    if (this->label != nullptr)
-    {
-      String content = getEndTemplate();
-      content.replace("{b}", this->label);
-      content.replace("{i}", this->getId());
-      webRequestWrapper->sendContent(content);
-    }
+  ConfigItem::renderHtml(dataArrived, webRequestWrapper);
 }
 
 void OptionalParameterGroup::update(WebRequestWrapper* webRequestWrapper)

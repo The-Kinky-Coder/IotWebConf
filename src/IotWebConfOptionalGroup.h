@@ -61,6 +61,8 @@ protected:
   }
 };
 
+class StandardHtmlRenderer;
+
 /**
  * With OptionalParameterGroup buttons will appear in the GUI,
  * to show and hide this specific group of parameters. The idea
@@ -86,6 +88,14 @@ protected:
   virtual String getEndTemplate() { return FPSTR(IOTWEBCONF_HTML_FORM_OPTIONAL_GROUP_END); };
   void update(WebRequestWrapper* webRequestWrapper) override;
   void debugTo(Stream* out) override;
+  
+  // Expose these for the StandardHtmlRenderer
+  // Ideally, these would be friends or public, but since we are decoupling,
+  // making them public (or friend) is necessary if the renderer is external.
+  // We'll declare StandardHtmlRenderer as a friend.
+  friend class StandardHtmlRenderer;
+
+  IotWebConfItemType getType() override { return IOTWEBCONF_TYPE_OPTIONAL_GROUP; }
 
 private:
   bool _defaultActive;

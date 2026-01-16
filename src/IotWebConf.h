@@ -16,6 +16,7 @@
 #include <IotWebConfParameter.h>
 #include <IotWebConfSettings.h>
 #include <IotWebConfWebServerWrapper.h>
+#include <IotWebConfHtmlRenderer.h>
 
 #ifdef ESP8266
 # include <ESP8266WiFi.h>
@@ -445,6 +446,7 @@ public:
    */
   WifiAuthInfo getWifiAuthInfo() { return _wifiAuthInfo; };
 
+
   /**
    * Resets the authentication credentials for WiFi connection to the configured one.
    * With the return value of setWifiConnectionFailedHandler() one can provide alternative connection settings,
@@ -454,6 +456,14 @@ public:
   {
     _wifiAuthInfo = {this->_wifiParameters._wifiSsid, this->_wifiParameters._wifiPassword};
   };
+  
+  /**
+   * Getter for the AP password.
+   */
+  const char* getApPasswordParameterValue()
+  {
+    return this->_apPassword;
+  }
 
   /**
    * 
@@ -553,10 +563,44 @@ public:
   {
     this->htmlFormatProvider = customHtmlFormatProvider;
   }
-  HtmlFormatProvider* getHtmlFormatProvider()
+  
+  /**
+   * Set a custom HTML renderer for parameters.
+   * Note: The renderer object is NOT owned by IotWebConf. The caller must ensure
+   * the renderer object remains valid for the lifetime of IotWebConf.
+   */
+  void setHtmlRenderer(HtmlRenderer* renderer)
   {
-    return this->htmlFormatProvider;
+      this->_htmlRenderer = renderer;
   }
+  
+  HtmlRenderer* getHtmlRenderer()
+  {
+      return this->_htmlRenderer;
+  }
+
+  /**
+   * Returns the configuration version.
+   */
+  const char* getConfigVersion() { return this->_configVersion; }
+
+  /**
+   * Returns the update path.
+   */
+  const char* getUpdatePath() { return this->_updatePath; }
+
+  /**
+   * Returns the HTML Format Provider.
+   */
+  HtmlFormatProvider* getHtmlFormatProvider() { return this->htmlFormatProvider; }
+  
+  /**
+   * Returns the Custom Parameter Group.
+   */
+  ParameterGroup* getCustomParameterGroup()
+  {
+    return &this->_customParameterGroups;
+  };
 
 private:
   const char* _initialApPassword = nullptr;
@@ -619,6 +663,8 @@ private:
   WifiAuthInfo _wifiAuthInfo;
   HtmlFormatProvider htmlFormatProviderInstance;
   HtmlFormatProvider* htmlFormatProvider = &htmlFormatProviderInstance;
+  StandardHtmlRenderer _defaultHtmlRenderer;
+  HtmlRenderer* _htmlRenderer = &_defaultHtmlRenderer;
 
   int initConfig();
   bool testConfigVersion();

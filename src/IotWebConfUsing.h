@@ -20,5 +20,8 @@ using IotWebConfPasswordParameter = iotwebconf::PasswordParameter;
 using IotWebConfNumberParameter = iotwebconf::NumberParameter;
 using IotWebConfCheckboxParameter = iotwebconf::CheckboxParameter;
 using IotWebConfSelectParameter = iotwebconf::SelectParameter;
+#ifdef IOTWEBCONF_ENABLE_JSON
+using IotWebConfApi = iotwebconf::IotWebConfApi;
+#endif
 
 #endif

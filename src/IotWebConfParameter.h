@@ -21,25 +21,29 @@
 # include <ArduinoJson.h>
 #endif
 
-const char IOTWEBCONF_HTML_FORM_GROUP_START[] PROGMEM =
-  "<fieldset id='{i}'><legend>{b}</legend>\n";
-const char IOTWEBCONF_HTML_FORM_GROUP_END[] PROGMEM =
-  "</fieldset>\n";
-
-const char IOTWEBCONF_HTML_FORM_PARAM[] PROGMEM =
-  "<div class='{s}'><label for='{i}'>{b}</label><input type='{t}' id='{i}' "
-  "name='{i}' {l} placeholder='{p}' value='{v}' {c}/>"
-  "<div class='em'>{e}</div></div>\n";
-
-const char IOTWEBCONF_HTML_FORM_SELECT_PARAM[] PROGMEM =
-  "<div class='{s}'><label for='{i}'>{b}</label><select id='{i}' "
-  "name='{i}' {c}/>\n{o}"
-  "</select><div class='em'>{e}</div></div>\n";
-const char IOTWEBCONF_HTML_FORM_OPTION[] PROGMEM =
-  "<option value='{v}'{s}>{n}</option>\n";
+// HTML constants moved to IotWebConfHtmlRenderer.cpp
 
 namespace iotwebconf
 {
+
+enum IotWebConfItemType {
+  IOTWEBCONF_TYPE_UNDEFINED,
+  IOTWEBCONF_TYPE_GROUP,
+  IOTWEBCONF_TYPE_TEXT,
+  IOTWEBCONF_TYPE_PASSWORD,
+  IOTWEBCONF_TYPE_NUMBER,
+  IOTWEBCONF_TYPE_CHECKBOX,
+  IOTWEBCONF_TYPE_SELECT,
+  IOTWEBCONF_TYPE_OPTIONAL_GROUP
+};
+
+class HtmlRenderer;
+class CheckboxParameter;
+class OptionsParameter;
+class SelectParameter;
+class OptionalParameterGroup;
+
+class StandardHtmlRenderer;
 
 typedef struct SerializationData
 {
@@ -89,7 +93,7 @@ public:
    * @webRequestWrapper - The webRequestWrapper, that will send the rendered content to the client.
    *   The webRequestWrapper->sendContent() method should be used in the implementations.
    */
-  virtual void renderHtml(bool dataArrived, WebRequestWrapper* webRequestWrapper) = 0;
+  virtual void renderHtml(bool dataArrived, WebRequestWrapper* webRequestWrapper);
 
   /**
    * New value arrived from the form post. The value should be stored in the
@@ -113,11 +117,16 @@ public:
    */
   virtual void debugTo(Stream* out) = 0;
 
+  virtual IotWebConfItemType getType() { return IOTWEBCONF_TYPE_UNDEFINED; }
+  
+  ConfigItem* getNext() { return this->_nextItem; }
+
 #ifdef IOTWEBCONF_ENABLE_JSON
   /**
    * 
    */
   virtual void loadFromJson(JsonObject jsonObject) = 0;
+  virtual void saveToJson(JsonObject& jsonObject) = 0;
 #endif
 
 protected:
@@ -128,6 +137,7 @@ private:
   ConfigItem* _parentItem = nullptr;
   ConfigItem* _nextItem = nullptr;
   friend class ParameterGroup; // Allow ParameterGroup to access _nextItem.
+  friend class StandardHtmlRenderer; // Allow StandardHtmlRenderer to access _nextItem.
 };
 
 class ParameterGroup : public ConfigItem
@@ -139,6 +149,7 @@ public:
   void applyDefaultValue() override;
 #ifdef IOTWEBCONF_ENABLE_JSON
   virtual void loadFromJson(JsonObject jsonObject) override;
+  virtual void saveToJson(JsonObject& jsonObject) override;
 #endif
 
 protected:
@@ -147,25 +158,19 @@ protected:
     SerializationData* serializationData)> doStore) override;
   void loadValue(std::function<void(
     SerializationData* serializationData)> doLoad) override;
-  void renderHtml(bool dataArrived, WebRequestWrapper* webRequestWrapper) override;
+
   void update(WebRequestWrapper* webRequestWrapper) override;
   void clearErrorMessage() override;
   void debugTo(Stream* out) override;
-  /**
-   * One can override this method in case a specific HTML template is required
-   * for a group.
-   */
-  virtual String getStartTemplate() { return FPSTR(IOTWEBCONF_HTML_FORM_GROUP_START); };
-  /**
-   * One can override this method in case a specific HTML template is required
-   * for a group.
-   */
-  virtual String getEndTemplate() { return FPSTR(IOTWEBCONF_HTML_FORM_GROUP_END); };
 
+  IotWebConfItemType getType() override { return IOTWEBCONF_TYPE_GROUP; }
+
+  ConfigItem* getFirst() { return this->_firstItem; }
   ConfigItem* _firstItem = nullptr;
   ConfigItem* getNextItemOf(ConfigItem* parent) { return parent->_nextItem; };
 
   friend class IotWebConf; // Allow IotWebConf to access protected members.
+  friend class StandardHtmlRenderer; // Allow StandardHtmlRenderer to access protected members.
 
 private:
 };
@@ -203,6 +208,7 @@ public:
   void applyDefaultValue() override;
 #ifdef IOTWEBCONF_ENABLE_JSON
   virtual void loadFromJson(JsonObject jsonObject) override;
+  virtual void saveToJson(JsonObject& jsonObject) override;
 #endif
 
 protected:
@@ -213,6 +219,8 @@ protected:
   virtual void update(WebRequestWrapper* webRequestWrapper) override;
   virtual void update(String newValue) = 0;
   void clearErrorMessage() override;
+
+  IotWebConfItemType getType() override { return IOTWEBCONF_TYPE_UNDEFINED; }
 
 private:
   int _length;
@@ -253,27 +261,16 @@ public:
   const char* customHtml;
 
 protected:
-  virtual String renderHtml(
-    bool dataArrived, bool hasValueFromPost, String valueFromPost);
   // Overrides
-  virtual void renderHtml(bool dataArrived, WebRequestWrapper* webRequestWrapper) override;
   virtual void update(String newValue) override;
   virtual void debugTo(Stream* out) override;
-  /**
-   * One can override this method in case a specific HTML template is required
-   * for a parameter.
-   */
-  virtual String getHtmlTemplate() { return FPSTR(IOTWEBCONF_HTML_FORM_PARAM); };
 
-  /**
-   * Renders a standard HTML form INPUT.
-   * @type - The type attribute of the html input field.
-   */
-  virtual String renderHtml(const char* type, bool hasValueFromPost, String valueFromPost);
+  IotWebConfItemType getType() override { return IOTWEBCONF_TYPE_TEXT; }
 
 private:
   friend class IotWebConf;
   friend class WifiParameterGroup;
+  friend class StandardHtmlRenderer;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -300,14 +297,15 @@ public:
 
 protected:
   // Overrides
-  virtual String renderHtml(
-    bool dataArrived, bool hasValueFromPost, String valueFromPost) override;
   virtual void update(String newValue) override;
   virtual void debugTo(Stream* out) override;
+
+  IotWebConfItemType getType() override { return IOTWEBCONF_TYPE_PASSWORD; }
 
 private:
   friend class IotWebConf;
   friend class WifiParameterGroup;
+  friend class StandardHtmlRenderer;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -331,11 +329,11 @@ public:
 
 protected:
   // Overrides
-  virtual String renderHtml(
-    bool dataArrived, bool hasValueFromPost, String valueFromPost) override;
+  IotWebConfItemType getType() override { return IOTWEBCONF_TYPE_NUMBER; }
 
 private:
   friend class IotWebConf;
+  friend class StandardHtmlRenderer;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -360,12 +358,13 @@ public:
 
 protected:
   // Overrides
-  virtual String renderHtml(
-    bool dataArrived, bool hasValueFromPost, String valueFromPost) override;
   virtual void update(WebRequestWrapper* webRequestWrapper) override;
+
+  IotWebConfItemType getType() override { return IOTWEBCONF_TYPE_CHECKBOX; }
 
 private:
   friend class IotWebConf;
+  friend class StandardHtmlRenderer;
   bool _checked;
   const char* _checkedStr = "checked='checked'";
 };
@@ -402,6 +401,7 @@ protected:
 
 private:
   friend class IotWebConf;
+  friend class StandardHtmlRenderer;
 };
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -425,11 +425,12 @@ public:
 
 protected:
   // Overrides
-  virtual String renderHtml(
-    bool dataArrived, bool hasValueFromPost, String valueFromPost) override;
+
+  IotWebConfItemType getType() override { return IOTWEBCONF_TYPE_SELECT; }
 
 private:
   friend class IotWebConf;
+  friend class StandardHtmlRenderer;
 };
 
 /**

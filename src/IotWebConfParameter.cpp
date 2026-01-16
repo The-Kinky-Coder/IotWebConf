@@ -9,10 +9,23 @@
  * of the MIT license.  See the LICENSE file for details.
  */
 
-#include <IotWebConfParameter.h>
+#include "IotWebConfParameter.h"
+#include "IotWebConfHtmlRenderer.h" // Needed for StandardHtmlRenderer
 
 namespace iotwebconf
 {
+
+// ---------------------------------------------------------
+// Global default renderer instance
+// ---------------------------------------------------------
+// This is a static instance of the standard renderer.
+// It allows us to maintain backward compatibility where
+// parameters render themselves using a default behavior.
+static StandardHtmlRenderer _defaultRenderer;
+
+// ---------------------------------------------------------
+// ParameterGroup
+// ---------------------------------------------------------
 
 ParameterGroup::ParameterGroup(
   const char* id, const char* label) :
@@ -83,33 +96,6 @@ void ParameterGroup::loadValue(
   }
 }
 
-void ParameterGroup::renderHtml(
-  bool dataArrived, WebRequestWrapper* webRequestWrapper)
-{
-    if (this->label != nullptr)
-    {
-      String content = getStartTemplate();
-      content.replace("{b}", this->label);
-      content.replace("{i}", this->getId());
-      webRequestWrapper->sendContent(content);
-    }
-    ConfigItem* current = this->_firstItem;
-    while (current != nullptr)
-    {
-      if (current->visible)
-      {
-        current->renderHtml(dataArrived, webRequestWrapper);
-      }
-      current = current->_nextItem;
-    }
-    if (this->label != nullptr)
-    {
-      String content = getEndTemplate();
-      content.replace("{b}", this->label);
-      content.replace("{i}", this->getId());
-      webRequestWrapper->sendContent(content);
-    }
-}
 void ParameterGroup::update(WebRequestWrapper* webRequestWrapper)
 {
   ConfigItem* current = this->_firstItem;
@@ -178,13 +164,9 @@ void ParameterGroup::debugTo(Stream* out)
 #ifdef IOTWEBCONF_ENABLE_JSON
 void ParameterGroup::loadFromJson(JsonObject jsonObject)
 {
-  if (jsonObject.containsKey(this->getId()))
+  if (!jsonObject[this->getId()].isNull())
   {
-#ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.print(F("Applying values from JSON for groupId: "));
-  Serial.println(this->getId());
-#endif
-    JsonObject myObject = jsonObject[this->getId()];
+    JsonObject myObject = jsonObject[this->getId()].as<JsonObject>();
     ConfigItem* current = this->_firstItem;
     while (current != nullptr)
     {
@@ -192,17 +174,32 @@ void ParameterGroup::loadFromJson(JsonObject jsonObject)
       current = current->_nextItem;
     }
   }
-  else
+}
+void ParameterGroup::saveToJson(JsonObject& jsonObject)
+{
+  JsonObject myObject = jsonObject[this->getId()].to<JsonObject>();
+  ConfigItem* current = this->_firstItem;
+  while (current != nullptr)
   {
-#ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    Serial.print(F("Group data not found in JSON. Skipping groupId: "));
-    Serial.println(this->getId());
-#endif
+    current->saveToJson(myObject);
+    current = current->_nextItem;
   }
 }
 #endif
 
-///////////////////////////////////////////////////////////////////////////////
+// ---------------------------------------------------------
+// ConfigItem (Base)
+// ---------------------------------------------------------
+
+void ConfigItem::renderHtml(bool dataArrived, WebRequestWrapper* webRequestWrapper)
+{
+    // Default implementation uses the standard renderer
+    _defaultRenderer.render(this, dataArrived, webRequestWrapper);
+}
+
+// ---------------------------------------------------------
+// Parameter (Base)
+// ---------------------------------------------------------
 
 Parameter::Parameter(
   const char* label, const char* id, char* valueBuffer, int length,
@@ -216,10 +213,12 @@ Parameter::Parameter(
 
   this->errorMessage = nullptr;
 }
+
 int Parameter::getStorageSize()
 {
   return this->_length;
 }
+
 void Parameter::applyDefaultValue()
 {
   if (defaultValue != nullptr)
@@ -231,6 +230,7 @@ void Parameter::applyDefaultValue()
     this->valueBuffer[0] = '\0';
   }
 }
+
 void Parameter::storeValue(
   std::function<void(SerializationData* serializationData)> doStore)
 {
@@ -239,6 +239,7 @@ void Parameter::storeValue(
   serializationData.data = (byte*)this->valueBuffer;
   doStore(&serializationData);
 }
+
 void Parameter::loadValue(
   std::function<void(SerializationData* serializationData)> doLoad)
 {
@@ -247,6 +248,7 @@ void Parameter::loadValue(
   serializationData.data = (byte*)this->valueBuffer;
   doLoad(&serializationData);
 }
+
 void Parameter::update(WebRequestWrapper* webRequestWrapper)
 {
   if (webRequestWrapper->hasArg(this->getId()))
@@ -255,18 +257,20 @@ void Parameter::update(WebRequestWrapper* webRequestWrapper)
     this->update(newValue);
   }
 }
+
 void Parameter::clearErrorMessage()
 {
     this->errorMessage = nullptr;
 }
+
 #ifdef IOTWEBCONF_ENABLE_JSON
 void Parameter::loadFromJson(JsonObject jsonObject)
 {
-  if (jsonObject.containsKey(this->getId()))
+  if (!jsonObject[this->getId()].isNull())
   {
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.print(F("Applying value from JSON for parameterId: "));
-  Serial.println(this->getId());
+    Serial.print(F("Applying value from JSON for parameterId: "));
+    Serial.println(this->getId());
 #endif
     const char* value = jsonObject[this->getId()];
     this->update(String(value));
@@ -274,10 +278,15 @@ void Parameter::loadFromJson(JsonObject jsonObject)
   else
   {
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.print(F("No value found in JSON for parameterId: "));
-  Serial.println(this->getId());
+    Serial.print(F("No value found in JSON for parameterId: "));
+    Serial.println(this->getId());
 #endif
   }
+}
+
+void Parameter::saveToJson(JsonObject& jsonObject)
+{
+  jsonObject[this->getId()] = this->valueBuffer;
 }
 #endif
 
@@ -295,55 +304,6 @@ TextParameter::TextParameter(
   this->customHtml = customHtml;
 }
 
-void TextParameter::renderHtml(
-  bool dataArrived, WebRequestWrapper* webRequestWrapper)
-{
-  String content = this->renderHtml(
-    dataArrived,
-    webRequestWrapper->hasArg(this->getId()),
-    webRequestWrapper->arg(this->getId()));
-  webRequestWrapper->sendContent(content);
-}
-String TextParameter::renderHtml(
-  bool dataArrived, bool hasValueFromPost, String valueFromPost)
-{
-  return this->renderHtml("text", hasValueFromPost, valueFromPost);
-}
-String TextParameter::renderHtml(
-  const char* type, bool hasValueFromPost, String valueFromPost)
-{
-  TextParameter* current = this;
-  char parLength[12];
-
-  String pitem = getHtmlTemplate();
-
-  pitem.replace("{b}", current->label);
-  pitem.replace("{t}", type);
-  pitem.replace("{i}", current->getId());
-  pitem.replace("{p}", current->placeholder == nullptr ? "" : current->placeholder);
-  snprintf(parLength, 12, "%d", current->getLength()-1);
-  pitem.replace("{l}", parLength);
-  if (hasValueFromPost)
-  {
-    // -- Value from previous submit
-    pitem.replace("{v}", valueFromPost);
-  }
-  else
-  {
-    // -- Value from config
-    pitem.replace("{v}", current->valueBuffer);
-  }
-  pitem.replace(
-      "{c}", current->customHtml == nullptr ? "" : current->customHtml);
-  pitem.replace(
-      "{s}",
-      current->errorMessage == nullptr ? "" : "de"); // Div style class.
-  pitem.replace(
-      "{e}",
-      current->errorMessage == nullptr ? "" : current->errorMessage);
-
-  return pitem;
-}
 
 void TextParameter::update(String newValue)
 {
@@ -377,13 +337,6 @@ NumberParameter::NumberParameter(
 {
 }
 
-String NumberParameter::renderHtml(
-  bool dataArrived,
-  bool hasValueFromPost, String valueFromPost)
-{
-  return TextParameter::renderHtml("number", hasValueFromPost, valueFromPost);
-}
-
 ///////////////////////////////////////////////////////////////////////////////
 
 PasswordParameter::PasswordParameter(
@@ -394,13 +347,6 @@ PasswordParameter::PasswordParameter(
   : TextParameter(label, id, valueBuffer, length, defaultValue,
   placeholder, customHtml)
 {
-}
-
-String PasswordParameter::renderHtml(
-  bool dataArrived,
-  bool hasValueFromPost, String valueFromPost)
-{
-  return TextParameter::renderHtml("password", true, String(""));
 }
 
 void PasswordParameter::debugTo(Stream* out)
@@ -455,39 +401,6 @@ CheckboxParameter::CheckboxParameter(
 {
 }
 
-String CheckboxParameter::renderHtml(
-  bool dataArrived,
-  bool hasValueFromPost, String valueFromPost)
-{
-  bool checkSelected = false;
-  if (dataArrived)
-  {
-    if (hasValueFromPost && valueFromPost.equals("selected"))
-    {
-      checkSelected = true;
-    }
-  }
-  else
-  {
-    if (this->isChecked())
-    {
-      checkSelected = true;
-    }
-  }
-
-  if (checkSelected)
-  {
-    this->customHtml = CheckboxParameter::_checkedStr;
-  }
-  else
-  {
-    this->customHtml = nullptr;
-  }
-  
-  
-  return TextParameter::renderHtml("checkbox", true, "selected");
-}
-
 void CheckboxParameter::update(WebRequestWrapper* webRequestWrapper)
 {
   if (webRequestWrapper->hasArg(this->getId()))
@@ -526,60 +439,6 @@ SelectParameter::SelectParameter(
   : OptionsParameter(label, id, valueBuffer, length, optionValues, optionNames,
   optionCount, nameLength, defaultValue)
 {
-}
-
-String SelectParameter::renderHtml(
-  bool dataArrived,
-  bool hasValueFromPost, String valueFromPost)
-{
-  TextParameter* current = this;
-
-  String options = "";
-
-  for (size_t i=0; i<this->_optionCount; i++)
-  {
-    const char *optionValue = (this->_optionValues + (i*this->getLength()) );
-    const char *optionName = (this->_optionNames + (i*this->_nameLength) );
-    String oitem = FPSTR(IOTWEBCONF_HTML_FORM_OPTION);
-    oitem.replace("{v}", optionValue);
-//    if (sizeof(this->_optionNames) > i)
-    {
-      oitem.replace("{n}", optionName);
-    }
-//    else
-//    {
-//      oitem.replace("{n}", "?");
-//    }
-    if ((hasValueFromPost && (valueFromPost == optionValue)) ||
-      (strncmp(current->valueBuffer, optionValue, this->getLength()) == 0))
-    {
-      // -- Value from previous submit
-      oitem.replace("{s}", " selected");
-    }
-    else
-    {
-      // -- Value from config
-      oitem.replace("{s}", "");
-    }
-
-    options += oitem;
-  }
-
-  String pitem = FPSTR(IOTWEBCONF_HTML_FORM_SELECT_PARAM);
-
-  pitem.replace("{b}", current->label);
-  pitem.replace("{i}", current->getId());
-  pitem.replace(
-      "{c}", current->customHtml == nullptr ? "" : current->customHtml);
-  pitem.replace(
-      "{s}",
-      current->errorMessage == nullptr ? "" : "de"); // Div style class.
-  pitem.replace(
-      "{e}",
-      current->errorMessage == nullptr ? "" : current->errorMessage);
-  pitem.replace("{o}", options);
-
-  return pitem;
 }
 
 ///////////////////////////////////////////////////////////////////////////////

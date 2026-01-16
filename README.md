@@ -1,10 +1,8 @@
 # IotWebConf [![Build Status](https://github.com/prampec/IotWebConf/workflows/PlatformIO%20CI/badge.svg?branch=master)](https://github.com/prampec/IotWebConf/actions/workflows/test.platformio.yml)
 
-## Upgrading to v3.0.0
-Lately version 3.0.0 is released. This release is not backward compatible with
-older versions, and some modification have to be done on existing codes.
-**Please visit [Migration Guide](doc/MigrationGuide-v3.0.0.md) for
- details!**
+## Upgrading to v3.2.0
+Version 3.2.0 introduces a major refactoring to separate HTML rendering from the data model.
+**Please visit [Migration Guide to v3.2.0](doc/MigrationGuide-v3.2.0.md) for details!**
 
 ## Summary
 IotWebConf is an Arduino library for ESP8266/ESP32 to provide a non-blocking standalone WiFi/AP web configuration portal.
@@ -20,6 +18,7 @@ Also visit experimental [Discord server](https://discord.gg/GR3uQeD).
 
   - Manages WiFi connection settings,
   - Provides a config portal user interface,
+  - **Highly customizable HTML rendering (Bootstrap, Tailwind, etc.)**,
   - You can extend the configuration with your own sophisticated propery structure, that is stored automatically,
   - Option to configure multiple WiFi connections. (Try next when the
    last used one is just not available.)
@@ -91,7 +90,7 @@ to ESP32. There are two major problems.
 
 ## Customizing and extending functionality
 IotWebConf is ment to be developer friendly by providing lots
-of customization options. See [HackingGuide](doc/HackingGuide.md) for
+of customization options. See [HackingGuide](doc/HackingGuide.md) and [Custom Rendering Guide](doc/CustomRendering.md) for
 details.
 
 ## TODO / Feature requests

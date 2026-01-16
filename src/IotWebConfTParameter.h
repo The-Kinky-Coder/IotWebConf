@@ -54,7 +54,7 @@ public:
   }
 
 #ifdef IOTWEBCONF_ENABLE_JSON
-  void loadFromJson(JsonObject jsonObject)
+  void loadFromJson(JsonObject jsonObject) override
   {
     if (jsonObject.containsKey(this->getId()))
     {
@@ -72,6 +72,11 @@ public:
     Serial.println(this->getId());
 # endif
     }
+  }
+
+  void saveToJson(JsonObject& jsonObject) override
+  {
+    jsonObject[this->getId()] = this->toString();
   }
 #endif
 

@@ -277,59 +277,7 @@ void IotWebConf::handleConfig(WebRequestWrapper* webRequestWrapper)
   bool dataArrived = webRequestWrapper->hasArg("iotSave");
   if (!dataArrived || !this->validateForm(webRequestWrapper))
   {
-    // -- Display config portal
-    IOTWEBCONF_DEBUG_LINE(F("Configuration page requested."));
-
-    // Send chunked output instead of one String, to avoid
-    // filling memory if using many parameters.
-    webRequestWrapper->sendHeader(
-        "Cache-Control", "no-cache, no-store, must-revalidate");
-    webRequestWrapper->sendHeader("Pragma", "no-cache");
-    webRequestWrapper->sendHeader("Expires", "-1");
-    webRequestWrapper->setContentLength(CONTENT_LENGTH_UNKNOWN);
-    webRequestWrapper->send(200, "text/html; charset=UTF-8", "");
-
-    String content = htmlFormatProvider->getHead();
-    content.replace("{v}", "Config ESP");
-    content += htmlFormatProvider->getScript();
-    content += htmlFormatProvider->getStyle();
-    content += htmlFormatProvider->getHeadExtension();
-    content += htmlFormatProvider->getHeadEnd();
-
-    content += htmlFormatProvider->getFormStart();
-
-    webRequestWrapper->sendContent(content);
-
-#ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    Serial.println("Rendering parameters:");
-    this->_systemParameters.debugTo(&Serial);
-    this->_customParameterGroups.debugTo(&Serial);
-#endif
-    // -- Add parameters to the form
-    this->_systemParameters.renderHtml(dataArrived, webRequestWrapper);
-    this->_customParameterGroups.renderHtml(dataArrived, webRequestWrapper);
-
-    content = htmlFormatProvider->getFormEnd();
-
-    if (this->_updatePath != nullptr)
-    {
-      String pitem = htmlFormatProvider->getUpdate();
-      pitem.replace("{u}", this->_updatePath);
-      content += pitem;
-    }
-
-    // -- Fill config version string;
-    {
-      String pitem = htmlFormatProvider->getConfigVer();
-      pitem.replace("{v}", this->_configVersion);
-      content += pitem;
-    }
-
-    content += htmlFormatProvider->getEnd();
-
-    webRequestWrapper->sendContent(content);
-    webRequestWrapper->sendContent(F(""));
-    webRequestWrapper->stop();
+    this->_htmlRenderer->render(this, webRequestWrapper, dataArrived);
   }
   else
   {
@@ -344,7 +292,10 @@ void IotWebConf::handleConfig(WebRequestWrapper* webRequestWrapper)
     this->_customParameterGroups.update(webRequestWrapper);
 
     this->saveConfig();
+    
+    this->_htmlRenderer->renderConfigSaved(this, webRequestWrapper);
 
+/*
     String page = htmlFormatProvider->getHead();
     page.replace("{v}", "Config ESP");
     page += htmlFormatProvider->getScript();
@@ -375,6 +326,7 @@ void IotWebConf::handleConfig(WebRequestWrapper* webRequestWrapper)
 
     webRequestWrapper->sendHeader("Content-Length", String(page.length()));
     webRequestWrapper->send(200, "text/html; charset=UTF-8", page);
+*/
   }
 }
 
