@@ -4,6 +4,8 @@
 
 #include "IotWebConfApi.h"
 
+#ifdef IOTWEBCONF_ENABLE_JSON
+
 namespace iotwebconf
 {
 
@@ -187,7 +189,6 @@ void IotWebConfApi::handleApiGetConfig()
   // Serialize all parameters to JSON
   // We can use the load/saveToJson methods if IOTWEBCONF_ENABLE_JSON is defined
   
-#ifdef IOTWEBCONF_ENABLE_JSON
   JsonDocument doc;
   JsonObject root = doc.to<JsonObject>();
   
@@ -195,16 +196,10 @@ void IotWebConfApi::handleApiGetConfig()
   group->saveToJson(root);
   
   sendJson(200, doc);
-#else
-  JsonDocument doc;
-  doc["error"] = "JSON support disabled";
-  sendJson(501, doc);
-#endif
 }
 
 void IotWebConfApi::handleApiSetConfig()
 {
-#ifdef IOTWEBCONF_ENABLE_JSON
   if (!_server->hasArg("plain")) 
   {
     JsonDocument doc;
@@ -238,11 +233,6 @@ void IotWebConfApi::handleApiSetConfig()
   JsonDocument resDoc;
   resDoc["status"] = "Saved";
   sendJson(200, resDoc);
-#else
-  JsonDocument doc;
-  doc["error"] = "JSON support disabled";
-  sendJson(501, doc);
-#endif
 }
 
 
@@ -255,3 +245,5 @@ void IotWebConfApi::sendJson(int code, JsonDocument& doc)
 }
 
 } // namespace iotwebconf
+
+#endif // IOTWEBCONF_ENABLE_JSON

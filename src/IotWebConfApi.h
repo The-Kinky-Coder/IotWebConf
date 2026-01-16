@@ -15,6 +15,8 @@
 #ifndef IotWebConfApi_h
 #define IotWebConfApi_h
 
+#ifdef IOTWEBCONF_ENABLE_JSON
+
 #include <ArduinoJson.h>
 #ifdef ESP8266
 # include <ESP8266WiFi.h>
@@ -65,5 +67,7 @@ private:
 };
 
 } // namespace iotwebconf
+
+#endif // IOTWEBCONF_ENABLE_JSON
 
 #endif
