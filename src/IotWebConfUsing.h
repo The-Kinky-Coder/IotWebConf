@@ -22,6 +22,7 @@ using IotWebConfCheckboxParameter = iotwebconf::CheckboxParameter;
 using IotWebConfSelectParameter = iotwebconf::SelectParameter;
 #ifdef IOTWEBCONF_ENABLE_JSON
 using IotWebConfApi = iotwebconf::IotWebConfApi;
+#include <IotWebConfApi.h>
 #endif
 
 #endif

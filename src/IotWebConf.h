@@ -602,6 +602,13 @@ public:
     return &this->_customParameterGroups;
   };
 
+  /**
+   * Forces the system to try to connect to the WiFi network.
+   * This is useful when the WiFi credentials were changed via an external API
+   * (e.g. JSON API) and we want to trigger a connection attempt immediately.
+   */
+  void forceWifiConnection();
+
 private:
   const char* _initialApPassword = nullptr;
   const char* _configVersion;

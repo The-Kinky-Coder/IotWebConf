@@ -971,4 +971,10 @@ WifiAuthInfo* IotWebConf::handleConnectWifiFailure()
   return nullptr;
 }
 
+void IotWebConf::forceWifiConnection()
+{
+  this->_wifiAuthInfo = {this->_wifiParameters._wifiSsid, this->_wifiParameters._wifiPassword};
+  this->changeState(Connecting);
+}
+
 } // end namespace
