@@ -27,6 +27,11 @@
 #endif
 #include <DNSServer.h> // -- For captive portal
 
+// -- Include AsyncWebServer wrapper if available
+#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_)
+# include <IotWebConfAsyncWebServer.h>
+#endif
+
 #ifdef ESP8266
 # ifndef WebServer
 #  define WebServer ESP8266WebServer
@@ -182,6 +187,28 @@ public:
   {
     this->_standardWebServerWrapper._server = server;
   }
+
+#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_)
+  /**
+   * Create a new configuration handler with AsyncWebServer support.
+   * Use this constructor when you want to share an AsyncWebServer instance
+   * between IotWebConf and your application code.
+   * 
+   *   @thingName - Initial value for the thing name. Used in many places like AP name, can be changed by the user.
+   *   @dnsServer - A created DNSServer, that can be configured for captive portal.
+   *   @server - A created AsyncWebServer instance. Will be started upon connection success.
+   *   @initialApPassword - Initial value for AP mode. Can be changed by the user.
+   *   @configVersion - When the software is updated and the configuration is changing, this key should also be changed,
+   *     so that the config portal will force the user to reenter all the configuration values.
+   */
+  IotWebConf(
+      const char* thingName, DNSServer* dnsServer, AsyncWebServer* server,
+      const char* initialApPassword, const char* configVersion = "init") :
+      IotWebConf(thingName, dnsServer, &this->_asyncWebServerWrapper, initialApPassword, configVersion)
+  {
+    this->_asyncWebServerWrapper._server = server;
+  }
+#endif
 
   IotWebConf(
       const char* thingName, DNSServer* dnsServer, WebServerWrapper* server,
@@ -615,6 +642,9 @@ private:
   DNSServer* _dnsServer;
   WebServerWrapper* _webServerWrapper;
   StandardWebServerWrapper _standardWebServerWrapper = StandardWebServerWrapper();
+#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_)
+  AsyncWebServerWrapper _asyncWebServerWrapper = AsyncWebServerWrapper();
+#endif
   std::function<void(const char* _updatePath)>
     _updateServerSetupFunction = nullptr;
   std::function<void(const char* userName, char* password)>
