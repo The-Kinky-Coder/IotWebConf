@@ -17,6 +17,7 @@
 
 #ifdef IOTWEBCONF_ENABLE_JSON
 
+#include <vector>
 #include <ArduinoJson.h>
 #ifdef ESP8266
 # include <ESP8266WiFi.h>
@@ -31,6 +32,20 @@
 #if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_)
 # include <ESPAsyncWebServer.h>
 # define IOTWEBCONF_API_HAS_ASYNC_SUPPORT
+#endif
+
+// ═══════════════════════════════════════════════════════
+// PHASE 3 CONFIGURATION CONSTANTS
+// ═══════════════════════════════════════════════════════
+
+// Maximum number of WiFi networks supported (Phase 3)
+#ifndef IOTWEBCONF_MAX_WIFI_NETWORKS
+# define IOTWEBCONF_MAX_WIFI_NETWORKS 10
+#endif
+
+// Connection test timeout in milliseconds (Phase 3)
+#ifndef IOTWEBCONF_WIFI_CONNECT_TIMEOUT_MS
+# define IOTWEBCONF_WIFI_CONNECT_TIMEOUT_MS 10000
 #endif
 
 namespace iotwebconf
@@ -80,7 +95,6 @@ public:
   // -- Handler methods (public so they can be used in lambdas if needed manually)
   void handleApiStatus();
   void handleApiNetworks();
-  void handleApiWifiConnect();
   void handleApiGetConfig();
   void handleApiSetConfig();
   void handleApiScan();
@@ -113,17 +127,6 @@ public:
   void handleApiGetConfiguredNetworks();
 
   /**
-   * POST /api/networks/{id}
-   * Update credentials for a specific network slot.
-   * 
-   * Request body: {"ssid": "NewSSID", "password": "NewPassword"}
-   * 
-   * ⚠️ WARNING: This method writes to EEPROM immediately.
-   * EEPROM has limited write cycles (~100,000). Avoid calling repeatedly.
-   */
-  void handleApiUpdateNetwork();
-
-  /**
    * POST /api/networks/{id}/connect
    * Connect to a specific saved network.
    * 
@@ -141,6 +144,39 @@ public:
    */
   void handleApiReconnect();
 
+  // ═══════════════════════════════════════════════════════
+  // PHASE 3 NETWORK MANAGEMENT API (REMOVED - HARD FORK)
+  // ═══════════════════════════════════════════════════════
+  // The following Phase 2 endpoints have been REMOVED in Phase 3:
+  //
+  // ❌ POST /api/networks/{id} - Update credentials (use POST /api/networks auto-slot)
+  //    - handleApiUpdateNetwork() - REMOVED
+
+  // ═══════════════════════════════════════════════════════
+  // PHASE 3 NETWORK MANAGEMENT API
+  // ═══════════════════════════════════════════════════════
+
+  /**
+   * POST /api/networks
+   * Add network to next available slot and auto-connect.
+   * 
+   * Request body: {"ssid": "NewSSID", "password": "NewPassword"}
+   * Response: {"status": "connecting", "id": "wifi2", "slot": 1, "ssid": "..."}
+   * 
+   * ⚠️ WARNING: This method writes to EEPROM immediately.
+   * Auto-connects to network after adding.
+   */
+  void handleApiAddNetwork();
+
+  /**
+   * DELETE /api/networks/{id}
+   * Remove network from configuration.
+   * 
+   * Cannot delete currently active network (returns 409 Conflict).
+   * ⚠️ WARNING: This method writes to EEPROM immediately.
+   */
+  void handleApiDeleteNetwork();
+
 private:
   IotWebConf* _iotWebConf;
   WebServer* _server;
@@ -154,6 +190,30 @@ private:
   // -- Async scan handling
   unsigned long _lastScanTime = 0;
   bool _scanRequested = false;
+
+  // ═══════════════════════════════════════════════════════
+  // NETWORK CACHE FOR FLICKER-FREE UI
+  // ═══════════════════════════════════════════════════════
+  
+  /**
+   * Cached network information to prevent UI flickering.
+   * Maintains network list even during scans.
+   */
+  struct CachedNetwork {
+    String ssid;
+    int rssi;
+    int encryption;
+    unsigned long lastSeen;  // millis() timestamp
+  };
+  
+  std::vector<CachedNetwork> _networkCache;
+  
+  /**
+   * Update network cache from completed scan results.
+   * Adds new networks and updates lastSeen for existing ones.
+   * Removes stale networks not seen for 45+ seconds (3 scans).
+   */
+  void updateNetworkCache();
 
   // ═══════════════════════════════════════════════════════
   // PHASE 2 NETWORK MANAGEMENT - PRIVATE MEMBERS
@@ -196,10 +256,55 @@ private:
    * Find a WiFi parameter group by ID.
    * Searches both single WiFi mode (iwcWifi0) and multiple WiFi mode.
    * 
+   * For single WiFi mode (iwcWifi0), returns the WifiParameterGroup.
+   * For multiple WiFi mode, returns a ChainedWifiParameterGroup cast to void*
+   * since they don't share a common WiFi base class.
+   * 
    * @param id Network ID (e.g., "iwcWifi0", "wifi1")
-   * @return Pointer to WifiParameterGroup, or nullptr if not found
+   * @param outIsSingle Set to true if found network is single WiFi mode (WifiParameterGroup*)
+   * @return Pointer to network group (cast to void*), or nullptr if not found
+   *         Caller must cast to WifiParameterGroup* if outIsSingle=true,
+   *         or ChainedWifiParameterGroup* if outIsSingle=false
    */
-  WifiParameterGroup* findNetworkById(const String& id);
+  void* findNetworkById(const String& id, bool& outIsSingle);
+
+  // ═══════════════════════════════════════════════════════
+  // PHASE 3 NETWORK MANAGEMENT - HELPER METHODS
+  // ═══════════════════════════════════════════════════════
+
+  /**
+   * Find next available network slot (empty SSID).
+   * Checks up to IOTWEBCONF_MAX_WIFI_NETWORKS slots.
+   * 
+   * @return Pointer to available slot (cast to void* for compatibility),
+   *         or nullptr if all slots full. Caller must determine if single
+   *         (WifiParameterGroup*) or multi (ChainedWifiParameterGroup*).
+   */
+  void* findAvailableSlot(bool& outIsSingle);
+
+  /**
+   * Count configured networks (non-empty SSID).
+   * 
+   * @return Number of configured networks (0 to IOTWEBCONF_MAX_WIFI_NETWORKS)
+   */
+  int getConfiguredNetworkCount();
+
+  /**
+   * Check if a network is currently active/connected.
+   * 
+   * @param id Network ID to check (e.g., "iwcWifi0", "wifi1")
+   * @return true if this network is currently connected
+   */
+  bool isNetworkActive(const String& id);
+
+  /**
+   * Get the current slot number for a network.
+   * Useful for response generation.
+   * 
+   * @param id Network ID
+   * @return Slot number (0-based), or -1 if not found
+   */
+  int getNetworkSlot(const String& id);
 };
 
 } // namespace iotwebconf

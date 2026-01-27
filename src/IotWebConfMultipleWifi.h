@@ -61,6 +61,12 @@ public:
   virtual bool formValidator(
     WebRequestWrapper* webRequestWrapper);
 
+  /**
+   * Get the first WiFi parameter set in the chain.
+   * Used by IotWebConfApi to iterate through configured networks.
+   */
+  ChainedWifiParameterGroup* getFirstSet() { return _firstSet; }
+
 protected:
   IotWebConf* _iotWebConf;
   ChainedWifiParameterGroup* _firstSet;

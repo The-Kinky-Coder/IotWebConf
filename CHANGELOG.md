@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased] - Phase 1 + Phase 2A + Phase 2B
+## [Unreleased] - Phase 1 + Phase 2 + Phase 3
 
 ### Added
 
@@ -73,7 +73,40 @@
   - API endpoint summary table
   - Version history
 
+#### Phase 3: Dynamic Network Management (Auto-Slot & Auto-Connect)
+- **POST /api/networks** - Auto-slot network assignment (no manual ID required)
+  - Automatically finds next available slot (empty SSID)
+  - Supports up to 10 networks (configurable via `IOTWEBCONF_MAX_WIFI_NETWORKS`)
+  - Immediate connection test after adding network
+  - Response includes assigned network ID, slot number, and SSID
+  - Returns 507 (Insufficient Storage) when all slots full
+- **DELETE /api/networks/{id}** - Remove network from configuration
+  - Clears SSID and password from specified network slot
+  - Protected: Cannot delete currently active network (409 Conflict)
+  - Saves changes to EEPROM immediately
+  - Supports both sync and async WebServer
+- **Configuration Constants**
+  - `IOTWEBCONF_MAX_WIFI_NETWORKS` - Maximum networks (default: 10)
+  - `IOTWEBCONF_WIFI_CONNECT_TIMEOUT_MS` - Connection timeout (default: 10000ms)
+- **Helper Methods**
+  - `findAvailableSlot()` - Find next empty network slot
+  - `getConfiguredNetworkCount()` - Count non-empty networks
+  - `isNetworkActive()` - Check if network is currently connected
+  - `getNetworkSlot()` - Get slot number for network ID
+
 ### Changed
+
+#### Phase 3: API Breaking Changes (Hard Fork)
+- **Removed POST /api/wifi** - Redundant with new auto-slot POST /api/networks
+- **Removed POST /api/networks/{id}** - Manual slot update replaced by auto-slot
+- **Response format changed** for adding networks:
+  - Old: `{"status": "updated", "id": "wifi2"}`
+  - New: `{"status": "connecting", "id": "wifi2", "slot": 1, "ssid": "MyNetwork"}`
+- **Auto-connect behavior** - Networks now connect immediately on add
+  - Old: Manual two-step (add, then connect)
+  - New: Automatic connection test, client polls /api/status for result
+
+### Changed (Continued)
 
 #### Core Library Modifications
 - **src/IotWebConf.h**
