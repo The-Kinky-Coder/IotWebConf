@@ -48,6 +48,11 @@ const char wifiInitialApPassword[] = "async8266";
 #define CONFIG_VERSION "async1"
 
 // -- Status indicator pin (LED)
+// Note: LED_BUILTIN may not be defined on all boards (e.g., ESP32-S3-USB-OTG)
+// If compilation fails, replace with a valid GPIO number or -1 to disable
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 2  // Default to GPIO 2 if LED_BUILTIN not defined
+#endif
 #define STATUS_PIN LED_BUILTIN
 
 // -- Method declarations

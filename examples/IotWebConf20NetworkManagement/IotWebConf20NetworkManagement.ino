@@ -25,7 +25,7 @@
  * - Handle network switching programmatically
  * 
  * Requirements:
- * - Build flag: -D IOTWEBCONF_ENABLE_JSON
+ * - Build flag: -D IOTWEBCONF_ENABLE_JSON (automatically set below for Arduino IDE)
  * - Library: ArduinoJson v6+
  * - Optional: MultipleWifi support (shown below)
  * 
@@ -49,6 +49,13 @@
  *   Open http://192.168.1.100/ for an interactive network management interface
  */
 
+// ═══════════════════════════════════════════════════════
+// REQUIRED: Enable JSON API support
+// ═══════════════════════════════════════════════════════
+#ifndef IOTWEBCONF_ENABLE_JSON
+#define IOTWEBCONF_ENABLE_JSON
+#endif
+
 #include <IotWebConf.h>
 #include <IotWebConfUsing.h>
 #include <IotWebConfApi.h>
@@ -62,6 +69,11 @@ const char wifiInitialApPassword[] = "netmgr123";
 #define CONFIG_VERSION "nm1"
 
 // -- Status indicator pin
+// Note: LED_BUILTIN may not be defined on all boards (e.g., ESP32-S3-USB-OTG)
+// If compilation fails, replace with a valid GPIO number or -1 to disable
+#ifndef LED_BUILTIN
+#define LED_BUILTIN 2  // Default to GPIO 2 if LED_BUILTIN not defined
+#endif
 #define STATUS_PIN LED_BUILTIN
 
 // -- Configuration reset button pin
