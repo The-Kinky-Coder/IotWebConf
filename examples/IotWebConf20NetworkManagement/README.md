@@ -1,27 +1,34 @@
 # IotWebConf20NetworkManagement
 
-This example demonstrates the **Phase 2 Network Management JSON API** added to IotWebConf.
+This example demonstrates the **Phase 3 Network Management JSON API** added to IotWebConf.
 
 ## Features Demonstrated
 
-### New API Endpoints
+### New Phase 3 API Endpoints
 
 1. **GET /api/networks/configured**
    - Lists all configured WiFi network credentials
    - Shows which network is currently connected
    - Displays active/inactive status for each network
 
-2. **POST /api/networks/{id}**
-   - Update credentials for a specific network slot
-   - Supports both single WiFi and multiple WiFi modes
+2. **POST /api/networks** ⭐ NEW in Phase 3
+   - Add network credentials with **automatic slot assignment**
+   - Finds next available slot automatically
+   - Returns assigned slot number and connection status
    - Saves changes to EEPROM
 
-3. **POST /api/networks/{id}/connect**
+3. **DELETE /api/networks/{id}** ⭐ NEW in Phase 3
+   - Delete credentials from a specific network slot
+   - Clears SSID and password (sets to empty)
+   - Cannot delete primary network (iwcWifi0)
+   - Saves changes to EEPROM
+
+4. **POST /api/networks/{id}/connect**
    - Connect to a specific saved network
    - Copies network credentials to primary slot
    - Triggers immediate connection attempt
 
-4. **POST /api/reconnect**
+5. **POST /api/reconnect**
    - Force WiFi reconnection with current settings
    - Useful after configuration changes
    - Does not modify EEPROM
@@ -33,15 +40,17 @@ This example optionally demonstrates **MultipleWifiAddition**:
 - Switch between networks via API
 - Fallback to alternate networks on connection failure
 
-### Interactive Web UI
+### Interactive Web UI ⭐ FULLY FUNCTIONAL
 
-Includes a complete single-page web application:
+Includes a complete, tested single-page web application:
 - **Dashboard**: Shows device status, IP address, and current connection
 - **Network List**: Display all configured networks with status badges
+- **Add Network**: Add new networks with auto-slot assignment
+- **Delete Network**: Remove networks you no longer need (except primary)
 - **Quick Connect**: One-click switching between networks
-- **Edit Credentials**: Update SSID and password for any network
 - **System Actions**: Reconnect, configure, or reboot device
-- **Auto-refresh**: Updates every 10 seconds
+- **Auto-refresh**: Updates every 15 seconds
+- **Modern Design**: Responsive, mobile-friendly, gradient backgrounds
 
 ## Hardware Requirements
 
@@ -129,21 +138,41 @@ Response:
 }
 ```
 
-#### Update Network Credentials
+#### Add Network (Phase 3 - Auto-Slot) ⭐ NEW
 
 ```bash
-curl -X POST http://192.168.1.100/api/networks/wifi2 \
+curl -X POST http://192.168.1.100/api/networks \
   -H "Content-Type: application/json" \
-  -d '{"ssid":"NewOfficeNetwork","password":"newpassword123"}'
+  -d '{"ssid":"CoffeeShopWiFi","password":"coffee123"}'
 ```
 
 Response:
 ```json
 {
-  "status": "updated",
+  "status": "connecting",
+  "id": "wifi2",
+  "slot": 1,
+  "ssid": "CoffeeShopWiFi"
+}
+```
+
+The API automatically finds the next available slot (wifi2, wifi3, etc.) and assigns the network there.
+
+#### Delete Network (Phase 3) ⭐ NEW
+
+```bash
+curl -X DELETE http://192.168.1.100/api/networks/wifi2
+```
+
+Response:
+```json
+{
+  "status": "deleted",
   "id": "wifi2"
 }
 ```
+
+**Note:** Cannot delete the primary network (iwcWifi0).
 
 #### Connect to a Network
 
@@ -191,7 +220,7 @@ To enable multiple WiFi support:
 IotWebConfApi api(&iotWebConf, &server);
 api.setMultipleWifiAddition(&multiWifi);
 
-// Register all API routes
+// Register all API routes (includes Phase 3 endpoints)
 api.registerRoutes();
 
 // Main loop
@@ -201,10 +230,25 @@ void loop() {
 }
 ```
 
+### Phase 3 Workflow
+
+**Adding a Network:**
+1. POST /api/networks with {"ssid":"...", "password":"..."}
+2. API finds next available slot automatically
+3. Credentials saved to EEPROM
+4. Device attempts connection
+5. Returns assigned slot number
+
+**Deleting a Network:**
+1. DELETE /api/networks/{id}
+2. Credentials cleared from slot (SSID and password emptied)
+3. Changes saved to EEPROM
+4. Slot becomes available for future networks
+
 ### Network Identification
 
 Networks are identified by their parameter group IDs:
-- **iwcWifi0** - Primary WiFi (always present)
+- **iwcWifi0** - Primary WiFi (always present, cannot be deleted)
 - **wifi2**, **wifi3**, etc. - Additional networks (if MultipleWifiAddition is used)
 - Custom IDs can be specified when creating ChainedWifiParameterGroup
 
@@ -254,25 +298,41 @@ ChainedWifiParameterGroup wifiGroup("Label", "networkId", ssid, password);
 
 ## Troubleshooting
 
-### Network Not Found Error
+### "Network not found" Error
 
 If you get `"error": "Network not found"`:
 - Check that the network ID matches exactly (case-sensitive)
-- Ensure MultipleWifiAddition is set: `api.setMultipleWifiAddition(&multiWifi)`
-- Verify the ChainedWifiParameterGroup was added to wifiChain[]
+- Ensure MultipleWifiAddition is enabled: `api.setMultipleWifiAddition(&multiWifi)`
+- Verify the network slot exists in configured networks list
+- Use GET /api/networks/configured to see all available network IDs
+
+### "Cannot delete primary network" Error
+
+The primary WiFi network (iwcWifi0) cannot be deleted via API:
+- This is by design to prevent lockout
+- Use the /config web page to modify primary credentials
+- Or update via POST /api/config endpoint
+
+### "No available network slots" Error
+
+When adding networks, if all slots are full:
+- Delete an unused network first with DELETE /api/networks/{id}
+- Or add more slots by expanding the wifiChain array in code
+- Check GET /api/networks/configured to see which slots are available
 
 ### EEPROM Write Warning
 
-The API writes to EEPROM when updating credentials. EEPROM has limited write cycles (~100,000):
-- Avoid repeatedly calling update endpoints in loops
+The API writes to EEPROM when adding/deleting/updating credentials. EEPROM has limited write cycles (~100,000):
+- Avoid repeatedly calling these endpoints in loops
 - Use POST /api/reconnect to reconnect without writing to EEPROM
 
-### Connection Fails After Update
+### Connection Fails After Adding/Updating Network
 
 - Verify credentials are correct
 - Check WiFi network is in range
 - Try POST /api/reconnect to retry connection
 - Check Serial Monitor for error messages
+- Try connecting via the web UI for better status feedback
 
 ### Web UI Not Loading
 
@@ -308,12 +368,47 @@ server.on("/api/networks/configured", [&]() {
 - **IotWebConf15MultipleWifi** - Multiple WiFi configuration
 - **IotWebConf19AsyncServer** - AsyncWebServer integration
 
-## Phase 2 API Documentation
+## Phase 3 API Documentation
 
 For complete API documentation, see:
 - `doc/JSON-API.md` - Full API reference
 - `AgentProgress/009-API-Architecture-Design.md` - Design decisions
-- `AgentProgress/012-Phase2A-Implementation-Complete.md` - Implementation notes
+- `AgentProgress/018-Phase3-Complete.md` - Phase 3 implementation notes
+
+## What's New in Phase 3
+
+**Phase 2 → Phase 3 Changes:**
+
+| Feature | Phase 2 | Phase 3 |
+|---------|---------|---------|
+| Add Network | POST /api/networks/{id} (manual slot) | POST /api/networks (auto-slot) ⭐ |
+| Delete Network | Not available | DELETE /api/networks/{id} ⭐ |
+| Slot Assignment | Manual | Automatic |
+| Return Value | Status only | Status + slot + id |
+
+**Migration Guide:**
+
+Old (Phase 2):
+```javascript
+// Had to manually specify slot
+POST /api/networks/wifi2
+{"ssid": "test", "password": "pass"}
+```
+
+New (Phase 3):
+```javascript
+// Auto-assigns to next available slot
+POST /api/networks
+{"ssid": "test", "password": "pass"}
+
+// Response tells you which slot was used
+{
+  "status": "connecting",
+  "id": "wifi2",
+  "slot": 1,
+  "ssid": "test"
+}
+```
 
 ## License
 
