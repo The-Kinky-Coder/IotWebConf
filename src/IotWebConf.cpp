@@ -480,7 +480,7 @@ void IotWebConf::doLoop()
     {
       startupState = OffLine;
     }
-    else if (this->_skipApStartup)
+    else if (this->_skipApStartup || this->_autoConnectOnBoot)
     {
       if (mustStayInApMode())
       {
@@ -491,7 +491,14 @@ void IotWebConf::doLoop()
       else
       {
         // -- Startup state can be WiFi, if it is requested and also possible.
-        IOTWEBCONF_DEBUG_LINE(F("SkipApStartup mode was applied"));
+        if (this->_skipApStartup)
+        {
+          IOTWEBCONF_DEBUG_LINE(F("SkipApStartup mode was applied"));
+        }
+        else
+        {
+          IOTWEBCONF_DEBUG_LINE(F("AutoConnectOnBoot mode was applied"));
+        }
         startupState = Connecting;
       }
     }

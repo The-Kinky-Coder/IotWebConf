@@ -506,6 +506,12 @@ public:
   void skipApStartup() { this->_skipApStartup = true; }
 
   /**
+   * If enabled, IotWebConf will start in WiFi mode on boot when credentials are set,
+   * and AP mode is not forced by ConfigPin. This only affects the boot flow.
+   */
+  void setAutoConnectOnBoot(bool value) { this->_autoConnectOnBoot = value; }
+
+  /**
    * By default IotWebConf will continue startup in WiFi mode, when no configuration request arrived
    * in AP mode. With this method holding the AP mode can be forced.
    * Further more, instant AP mode can forced even when we are currently in WiFi mode.
@@ -656,6 +662,7 @@ private:
   bool _forceDefaultPassword = false;
   bool _startupOffLine = false;
   bool _skipApStartup = false;
+  bool _autoConnectOnBoot = (IOTWEBCONF_DEFAULT_AUTO_CONNECT != 0);
   bool _forceApMode = false;
   ParameterGroup _allParameters = ParameterGroup("iwcAll");
   ParameterGroup _systemParameters = ParameterGroup("iwcSys", "System configuration");
@@ -719,7 +726,7 @@ private:
   }
   bool mustStayInApMode()
   {
-    return this->_forceDefaultPassword || (this->_apPassword[0] == '\0') ||
+    return this->_forceDefaultPassword ||
       (this->_wifiParameters._wifiSsid[0] == '\0') || this->_forceApMode;
   }
   bool isIp(String str);

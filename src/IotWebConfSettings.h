@@ -39,6 +39,12 @@
 # define IOTWEBCONF_DEFAULT_AP_MODE_TIMEOUT_SECS "30"
 #endif
 
+// -- Auto-connect to WiFi on boot when credentials are set.
+// Set to 1 to start in STA mode (unless AP is forced by config pin).
+#ifndef IOTWEBCONF_DEFAULT_AUTO_CONNECT
+# define IOTWEBCONF_DEFAULT_AUTO_CONNECT 0
+#endif
+
 // -- mDNS should allow you to connect to this device with a hostname provided
 // by the device. E.g. mything.local
 // (This is not very likely to work, and MDNS is not very well documented.)
