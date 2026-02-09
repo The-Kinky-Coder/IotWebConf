@@ -17,7 +17,11 @@
 
 #include <Arduino.h>
 #include <IotWebConfWebServerWrapper.h>
+#include <IotWebConfIpAddress.h>
 #include <ESPAsyncWebServer.h>
+#if defined(ESP32)
+#include <WiFi.h>
+#endif
 
 namespace iotwebconf
 {
@@ -63,6 +67,33 @@ public:
   IPAddress localIP() override
   {
     return this->_request->client()->localIP();
+  }
+
+  IpAddress localAddress() override
+  {
+    IpAddress ipv6 = getClientLocalIp6(*this->_request->client(), 0);
+    if (ipv6.isSet())
+    {
+      return ipv6;
+    }
+    IpAddress clientIp = IpAddress::fromString(this->_request->client()->localIP().toString());
+    if (clientIp.isV6())
+    {
+      return clientIp;
+    }
+#if defined(ESP32) && defined(CONFIG_LWIP_IPV6)
+    IpAddress wifiV6 = IpAddress::fromString(WiFi.globalIPv6().toString());
+    if (wifiV6.isSet())
+    {
+      return wifiV6;
+    }
+    wifiV6 = IpAddress::fromString(WiFi.linkLocalIPv6().toString());
+    if (wifiV6.isSet())
+    {
+      return wifiV6;
+    }
+#endif
+    return clientIp.isSet() ? clientIp : IpAddress();
   }
 
   /**
@@ -235,6 +266,20 @@ public:
   }
 
 private:
+  template <typename T>
+  static auto getClientLocalIp6(T& client, int)
+    -> decltype(client.localIP6(), IpAddress())
+  {
+    auto ip6 = client.localIP6();
+    return IpAddress::fromString(ip6.toString());
+  }
+
+  template <typename T>
+  static IpAddress getClientLocalIp6(T&, long)
+  {
+    return IpAddress();
+  }
+
   AsyncWebServerRequest* _request;
   
   // State for managing headers and chunked responses

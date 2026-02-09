@@ -18,6 +18,8 @@
  *   Also, three custom parameters are introduced, that are used
  *   at the connection.
  *   (See previous examples for more details!)
+ *   ESP32 IPv6 note: when dual-stack is available, the status page can be
+ *   reached via IPv6 using bracketed URLs like http://[fd00::1234]/
  * 
  * Hardware setup for this example:
  *   - An LED is attached to LED_BUILTIN pin with setup On=LOW.

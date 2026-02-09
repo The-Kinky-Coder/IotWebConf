@@ -168,6 +168,21 @@ void IotWebConfApi::handleApiStatus()
   doc["state"] = _iotWebConf->getState(); // Enum value
   doc["thingName"] = _iotWebConf->getThingName();
   doc["ip"] = WiFi.localIP().toString();
+  doc["ip_v4"] = WiFi.localIP().toString();
+#if defined(ESP32) && defined(CONFIG_LWIP_IPV6)
+  String ipv6Global = WiFi.globalIPv6().toString();
+  String ipv6LinkLocal = WiFi.linkLocalIPv6().toString();
+  if (ipv6Global.length() > 0)
+  {
+    doc["ip_v6"] = ipv6Global;
+    doc["ip_v6_ll"] = false;
+  }
+  else if (ipv6LinkLocal.length() > 0)
+  {
+    doc["ip_v6"] = ipv6LinkLocal;
+    doc["ip_v6_ll"] = true;
+  }
+#endif
   doc["mac"] = WiFi.macAddress();
   
   // Wifi connection status

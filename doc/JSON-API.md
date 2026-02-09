@@ -3,6 +3,8 @@
 ## Overview
 The `IotWebConfApi` class provides a RESTful JSON API for interacting with your IotWebConf-enabled device. This feature allows for headless configuration, mobile app integration, or custom frontends (e.g., React/Vue apps) served directly from the device.
 
+**IPv6 on ESP32:** When the ESP32 stack provides IPv6, the API is reachable via both IPv4 and IPv6. Use bracketed IPv6 URLs in clients like curl, e.g. `http://[fd00::1234]/api/status`. The status payload includes `ip_v6` and a boolean `ip_v6_ll` to indicate whether the IPv6 address is link-local.
+
 ## Prerequisites
 1.  **ArduinoJson**: This library depends on [ArduinoJson](https://arduinojson.org/) (v6).
 2.  **Build Flag**: You must define `IOTWEBCONF_ENABLE_JSON` in your build configuration (e.g., `platformio.ini`).
@@ -71,6 +73,9 @@ Returns the current device state, WiFi connection status, and Access Point detai
   "state": 4,
   "thingName": "testThing",
   "ip": "192.168.1.105",
+  "ip_v4": "192.168.1.105",
+  "ip_v6": "fd00::1234",
+  "ip_v6_ll": false,
   "mac": "AA:BB:CC:DD:EE:FF",
   "wifi": {
     "status": 3,
@@ -301,6 +306,11 @@ Updates the SSID and password for a specific network slot.
 curl -X POST http://192.168.1.100/api/networks/wifi2 \
   -H "Content-Type: application/json" \
   -d '{"ssid":"MyNetwork","password":"MyPassword"}'
+
+# IPv6 (ESP32 dual-stack)
+curl -X POST "http://[fd00::1234]/api/networks/wifi2" \
+  -H "Content-Type: application/json" \
+  -d '{"ssid":"MyNetwork","password":"MyPassword"}'
 ```
 
 ---
@@ -340,6 +350,9 @@ Connects to a specific saved network by copying its credentials to the primary W
 **Example:**
 ```bash
 curl -X POST http://192.168.1.100/api/networks/wifi2/connect
+
+# IPv6 (ESP32 dual-stack)
+curl -X POST "http://[fd00::1234]/api/networks/wifi2/connect"
 ```
 
 ---
@@ -366,6 +379,9 @@ Forces a WiFi reconnection attempt using the current configuration. Useful after
 **Example:**
 ```bash
 curl -X POST http://192.168.1.100/api/reconnect
+
+# IPv6 (ESP32 dual-stack)
+curl -X POST "http://[fd00::1234]/api/reconnect"
 ```
 
 ---
@@ -832,6 +848,10 @@ Complete working examples are available in the `examples/` directory:
 - Added AsyncWebServer support via `registerRoutesAsync()`
 - Added `setMultipleWifiAddition()` for multi-network management
 
+### IPv6 Notes (ESP32 dual-stack)
+- API endpoints are reachable via IPv6 when the ESP32 network stack assigns an IPv6 address
+- Use bracketed IPv6 URLs in clients (e.g., `http://[fd00::1234]/api/status`)
+
 ### Phase 1 (v3.1.0) - Core JSON API
 - Initial JSON API implementation
 - Basic endpoints: status, scan, networks, wifi, config
@@ -851,4 +871,3 @@ Complete working examples are available in the `examples/` directory:
 
 This library and documentation are released under the MIT License.  
 Copyright (C) 2020 Balazs Kelemen <prampec+arduino@gmail.com>
-

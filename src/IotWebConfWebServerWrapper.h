@@ -14,6 +14,7 @@
 
 #include <Arduino.h>
 #include <IPAddress.h>
+#include <IotWebConfIpAddress.h>
 
 namespace iotwebconf
 {
@@ -23,6 +24,7 @@ class WebRequestWrapper
 public:
   virtual const String hostHeader() const;
   virtual IPAddress localIP();
+  virtual IpAddress localAddress() { return IpAddress::fromString(localIP().toString()); }
   virtual uint16_t localPort();
   virtual const String uri() const;
   virtual bool authenticate(const char * username, const char * password);

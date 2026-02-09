@@ -33,6 +33,9 @@
  *   Set a new password for the Thing as well as your local WiFi credentials.
  *   After configuration, visit the root page to see both IotWebConf and your custom
  *   async routes working together.
+ *
+ *   ESP32 IPv6 note: if the board has IPv6, use bracketed URLs like
+ *   http://[fd00::1234]/ or http://[fd00::1234]/api/status
  */
 
 #include <IotWebConf.h>

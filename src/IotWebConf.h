@@ -17,6 +17,7 @@
 #include <IotWebConfSettings.h>
 #include <IotWebConfWebServerWrapper.h>
 #include <IotWebConfHtmlRenderer.h>
+#include <IotWebConfIpAddress.h>
 
 #ifdef ESP8266
 # include <ESP8266WiFi.h>
@@ -113,6 +114,32 @@ public:
 
   const String hostHeader() const override { return this->_server->hostHeader(); };
   IPAddress localIP() override { return this->_server->client().localIP(); };
+  IpAddress localAddress() override
+  {
+    IpAddress ipv6 = getClientLocalIp6(this->_server->client(), 0);
+    if (ipv6.isSet())
+    {
+      return ipv6;
+    }
+    IpAddress clientIp = IpAddress::fromString(this->_server->client().localIP().toString());
+    if (clientIp.isV6())
+    {
+      return clientIp;
+    }
+#if defined(ESP32) && defined(CONFIG_LWIP_IPV6)
+    IpAddress wifiV6 = IpAddress::fromString(WiFi.globalIPv6().toString());
+    if (wifiV6.isSet())
+    {
+      return wifiV6;
+    }
+    wifiV6 = IpAddress::fromString(WiFi.linkLocalIPv6().toString());
+    if (wifiV6.isSet())
+    {
+      return wifiV6;
+    }
+#endif
+    return clientIp.isSet() ? clientIp : IpAddress();
+  };
   uint16_t localPort() override { return this->_server->client().localPort(); };
   const String uri() const { return this->_server->uri(); };
   bool authenticate(const char * username, const char * password) override
@@ -131,6 +158,20 @@ public:
   void stop() override { this->_server->client().stop(); };
 
 private:
+  template <typename T>
+  static auto getClientLocalIp6(T& client, int)
+    -> decltype(client.localIP6(), IpAddress())
+  {
+    auto ip6 = client.localIP6();
+    return IpAddress::fromString(ip6.toString());
+  }
+
+  template <typename T>
+  static IpAddress getClientLocalIp6(T&, long)
+  {
+    return IpAddress();
+  }
+
   WebServer* _server;
   friend IotWebConf;
 };
@@ -730,7 +771,7 @@ private:
       (this->_wifiParameters._wifiSsid[0] == '\0') || this->_forceApMode;
   }
   bool isIp(String str);
-  String toStringIp(IPAddress ip);
+  String toStringIp(const IpAddress& ip);
   void doBlink();
   void blinkInternal(unsigned long repeatMs, unsigned long onMs);
 

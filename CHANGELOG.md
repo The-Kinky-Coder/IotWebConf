@@ -4,6 +4,13 @@
 
 ### Added
 
+#### ESP32 IPv6 Dual-Stack Support
+- Added `IpAddress` abstraction with IPv4/IPv6 parsing and formatting.
+- Added `WebRequestWrapper::localAddress()` for IPv6-aware local address handling.
+- Captive portal redirect now brackets IPv6 literals in Location headers.
+- Status API now exposes `ip_v4`, `ip_v6`, and boolean `ip_v6_ll` fields.
+- Added `IpStringDataType` for IPv6-capable configuration parameters.
+
 #### Phase 1: AsyncWebServer Support
 - **AsyncWebServer wrapper** (`src/IotWebConfAsyncWebServer.h`)
   - `AsyncWebRequestWrapper` class for wrapping AsyncWebServerRequest

@@ -40,6 +40,11 @@
  *   curl -X POST http://192.168.1.100/api/networks \
  *     -H "Content-Type: application/json" \
  *     -d '{"ssid":"MyNetwork","password":"MyPassword"}'
+ *
+ *   # IPv6 (ESP32 dual-stack)
+ *   curl -X POST "http://[fd00::1234]/api/networks" \
+ *     -H "Content-Type: application/json" \
+ *     -d '{"ssid":"MyNetwork","password":"MyPassword"}'
  * 
  *   # Then check config portal at http://192.168.1.100/config
  *   # You'll see the network there too!

@@ -411,16 +411,44 @@ bool IotWebConf::handleCaptivePortal(WebRequestWrapper* webRequestWrapper)
   thingName.toLowerCase();
   if (!isIp(host) && !host.startsWith(thingName))
   {
+    IpAddress localIp = webRequestWrapper->localAddress();
+    String localIpString = toStringIp(localIp);
+    if (localIp.isV6())
+    {
+      localIpString = String("[") + localIpString + "]";
+    }
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
     Serial.print("Request for ");
     Serial.print(host);
     Serial.print(" redirected to ");
-    Serial.print(webRequestWrapper->localIP());
+    Serial.print(localIpString);
     Serial.print(":");
     Serial.println(webRequestWrapper->localPort());
+# if defined(ESP32) && defined(CONFIG_LWIP_IPV6)
+    if (!localIp.isV6())
+    {
+      String ipv6Global = WiFi.globalIPv6().toString();
+      String ipv6LinkLocal = WiFi.linkLocalIPv6().toString();
+      if (ipv6Global.length() > 0)
+      {
+        Serial.print(F("IPv6: "));
+        Serial.println(ipv6Global);
+      }
+      else if (ipv6LinkLocal.length() > 0)
+      {
+        Serial.print(F("IPv6 (LL): "));
+        Serial.println(ipv6LinkLocal);
+      }
+    }
+# endif
 #endif
+    String locationHost = toStringIp(localIp);
+    if (localIp.isV6())
+    {
+      locationHost = String("[") + locationHost + "]";
+    }
     webRequestWrapper->sendHeader(
-      "Location", String("http://") + toStringIp(webRequestWrapper->localIP()) + ":" + webRequestWrapper->localPort(), true);
+      "Location", String("http://") + locationHost + ":" + webRequestWrapper->localPort(), true);
     webRequestWrapper->send(302, "text/plain", ""); // Empty content inhibits Content-length header so we have to close the socket ourselves.
     webRequestWrapper->stop(); // Stop is needed because we sent no content length
     return true;
@@ -431,27 +459,33 @@ bool IotWebConf::handleCaptivePortal(WebRequestWrapper* webRequestWrapper)
 /** Is this an IP? */
 bool IotWebConf::isIp(String str)
 {
-  for (size_t i = 0; i < str.length(); i++)
+  String host = str;
+  host.trim();
+  if (host.startsWith("["))
   {
-    int c = str.charAt(i);
-    if (c != '.' && c != ':' && (c < '0' || c > '9'))
+    int closeBracket = host.indexOf(']');
+    if (closeBracket <= 1)
     {
       return false;
     }
+    host = host.substring(1, closeBracket);
   }
-  return true;
+  else
+  {
+    int firstColon = host.indexOf(':');
+    if (firstColon > 0 && host.indexOf(':', firstColon + 1) < 0)
+    {
+      host = host.substring(0, firstColon);
+    }
+  }
+  IpAddress parsed = IpAddress::parse(host);
+  return parsed.isSet();
 }
 
 /** IP to String? */
-String IotWebConf::toStringIp(IPAddress ip)
+String IotWebConf::toStringIp(const IpAddress& ip)
 {
-  String res = "";
-  for (int i = 0; i < 3; i++)
-  {
-    res += String((ip >> (8 * i)) & 0xFF) + ".";
-  }
-  res += String(((ip >> 8 * 3)) & 0xFF);
-  return res;
+  return ip.toString(false);
 }
 
 /////////////////////////////////////////////////////////////////////////////////
@@ -824,6 +858,22 @@ bool IotWebConf::checkWifiConnection()
   Serial.println("WiFi connected");
   Serial.print("IP address: ");
   Serial.println(WiFi.localIP());
+# if defined(ESP32) && defined(CONFIG_LWIP_IPV6)
+  {
+    String ipv6Global = WiFi.globalIPv6().toString();
+    String ipv6LinkLocal = WiFi.linkLocalIPv6().toString();
+    if (ipv6Global.length() > 0)
+    {
+      Serial.print(F("IPv6: "));
+      Serial.println(ipv6Global);
+    }
+    else if (ipv6LinkLocal.length() > 0)
+    {
+      Serial.print(F("IPv6 (LL): "));
+      Serial.println(ipv6LinkLocal);
+    }
+  }
+# endif
 #endif
 
   return true;
@@ -865,12 +915,30 @@ void IotWebConf::setupAp()
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
   Serial.print(F("AP IP address: "));
   Serial.println(WiFi.softAPIP());
+# if defined(ESP32) && defined(CONFIG_LWIP_IPV6)
+  {
+    String ipv6Global = WiFi.globalIPv6().toString();
+    String ipv6LinkLocal = WiFi.linkLocalIPv6().toString();
+    if (ipv6Global.length() > 0)
+    {
+      Serial.print(F("IPv6: "));
+      Serial.println(ipv6Global);
+    }
+    else if (ipv6LinkLocal.length() > 0)
+    {
+      Serial.print(F("IPv6 (LL): "));
+      Serial.println(ipv6LinkLocal);
+    }
+  }
+# endif
 #endif
   //  delay(500); // Without delay I've seen the IP address blank
   //  Serial.print(F("AP IP address: "));
   //  Serial.println(WiFi.softAPIP());
 
-  /* Setup the DNS server redirecting all the domains to the apIP */
+  /* Setup the DNS server redirecting all the domains to the apIP.
+     Note: DNSServer in use here does not support IPv6 responses, so we
+     only configure IPv4 for captive portal DNS. */
   this->_dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
   this->_dnsServer->start(IOTWEBCONF_DNS_PORT, "*", WiFi.softAPIP());
 }

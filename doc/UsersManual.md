@@ -151,6 +151,13 @@ device, you might want to consult with your WiFi router. (Devices
 are intented to be access by name as well, but this option is not
 reliable, thus, it cannot be recommended.)
 
+On ESP32, the device may be reachable via both IPv4 and IPv6 (dual-stack).
+For IPv6, use bracketed URLs like `http://[fd00::1234]/`.
+
+For custom parameters, IPv4-only fields still use the `IPAddress` parameter type. If you want
+to accept IPv6 in configuration, use a string parameter with IPv6 validation (see
+`IpStringDataType` in `IotWebConfTParameter.h`).
+
 When you want to access the Config Portal of the device __via a WiFi
 network__ from your Web Browser, a login page will be displayed, where
 you need to enter:

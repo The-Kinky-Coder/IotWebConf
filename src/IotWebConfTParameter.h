@@ -356,6 +356,118 @@ protected:
 
 /////////////////////////////////////////////////////////////////////////
 
+class IpAddressParser
+{
+public:
+  static bool isValidIPv4String(const String& value)
+  {
+    IPAddress ip;
+    return ip.fromString(value);
+  }
+
+  static bool isValidIPv6String(const String& value)
+  {
+    int length = value.length();
+    if (length < 2)
+    {
+      return false;
+    }
+    int firstColon = value.indexOf(':');
+    if (firstColon < 0)
+    {
+      return false;
+    }
+
+    int doubleColonIndex = value.indexOf("::");
+    if ((doubleColonIndex >= 0)
+      && (value.indexOf("::", doubleColonIndex + 2) >= 0))
+    {
+      return false;
+    }
+
+    int groups = 0;
+    int i = 0;
+    bool sawDoubleColon = doubleColonIndex >= 0;
+
+    while (i < length)
+    {
+      int segmentEnd = value.indexOf(':', i);
+      if (segmentEnd < 0)
+      {
+        segmentEnd = length;
+      }
+      int segmentLen = segmentEnd - i;
+      if (segmentLen == 0)
+      {
+        if (!sawDoubleColon
+          || (i != doubleColonIndex && i != (doubleColonIndex + 1)))
+        {
+          return false;
+        }
+        i = segmentEnd + 1;
+        continue;
+      }
+
+      int dotIndex = value.indexOf('.', i);
+      if ((dotIndex >= 0) && (dotIndex < segmentEnd))
+      {
+        String tail = value.substring(i);
+        IPAddress ip4;
+        if (!ip4.fromString(tail))
+        {
+          return false;
+        }
+        groups += 2;
+        return sawDoubleColon ? groups <= 8 : groups == 8;
+      }
+
+      if (!IpAddressParser::isValidHextet(value, i, segmentEnd))
+      {
+        return false;
+      }
+      groups++;
+      i = segmentEnd + 1;
+    }
+
+    if (sawDoubleColon)
+    {
+      return groups < 8;
+    }
+    return groups == 8;
+  }
+
+  static bool isValidIpString(const String& value)
+  {
+    return IpAddressParser::isValidIPv4String(value)
+      || IpAddressParser::isValidIPv6String(value);
+  }
+
+private:
+  static bool isHexDigit(char c)
+  {
+    return ((c >= '0') && (c <= '9'))
+      || ((c >= 'a') && (c <= 'f'))
+      || ((c >= 'A') && (c <= 'F'));
+  }
+
+  static bool isValidHextet(const String& value, int start, int end)
+  {
+    int len = end - start;
+    if ((len <= 0) || (len > 4))
+    {
+      return false;
+    }
+    for (int i = start; i < end; i++)
+    {
+      if (!IpAddressParser::isHexDigit(value[i]))
+      {
+        return false;
+      }
+    }
+    return true;
+  }
+};
+
 class IpDataType : public DataType<IPAddress>
 {
 using DataType<IPAddress>::DataType;
@@ -365,8 +477,7 @@ protected:
   {
     if (validateOnly)
     {
-      IPAddress ip;
-      return ip.fromString(newValue);
+      return IpAddressParser::isValidIPv4String(newValue);
     }
     else
     {
@@ -375,6 +486,26 @@ protected:
   }
 
   virtual String toString() override { return this->_value.toString(); }
+};
+
+template <size_t len>
+class IpStringDataType : public CharArrayDataType<len>
+{
+public:
+using CharArrayDataType<len>::CharArrayDataType;
+  IpStringDataType(const char* id, const char* defaultValue) :
+    ConfigItemBridge::ConfigItemBridge(id),
+    CharArrayDataType<len>::CharArrayDataType(id, defaultValue) { };
+
+protected:
+  virtual bool update(String newValue, bool validateOnly) override
+  {
+    if (!IpAddressParser::isValidIpString(newValue))
+    {
+      return false;
+    }
+    return CharArrayDataType<len>::update(newValue, validateOnly);
+  }
 };
 
 ///////////////////////////////////////////////////////////////////////////

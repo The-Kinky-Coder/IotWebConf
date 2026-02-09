@@ -4,6 +4,16 @@
 Version 3.2.0 introduces a major refactoring to separate HTML rendering from the data model.
 **Please visit [Migration Guide to v3.2.0](doc/MigrationGuide-v3.2.0.md) for details!**
 
+### IPv6 dual-stack note (ESP32)
+ESP32 builds can expose both IPv4 and IPv6 addresses. Use bracketed IPv6 URLs (e.g. `http://[fd00::1234]/`) in tools like curl or browsers.
+
+### Migration snippet: IPv6 URLs
+If you script API calls, update any hardcoded IPv4 URLs to allow IPv6 on ESP32. Curl requires brackets around IPv6 literals, e.g. `curl "http://[fd00::1234]/api/status"`.
+
+### Migration snippet: IPv6 config parameters
+Existing `IPAddress` parameters remain IPv4-only. To accept IPv6 addresses in configuration, use the
+string-based `IpStringDataType` (see `IotWebConfTParameter.h`).
+
 ## Summary
 IotWebConf is an Arduino library for ESP8266/ESP32 to provide a non-blocking standalone WiFi/AP web configuration portal.
 **For ESP8266, IotWebConf requires the esp8266 board package version 2.4.2 or later!**
