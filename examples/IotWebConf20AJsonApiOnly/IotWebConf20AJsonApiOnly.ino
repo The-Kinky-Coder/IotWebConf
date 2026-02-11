@@ -991,6 +991,10 @@ void setup()
   
   // -- Register all JSON API routes
   api.registerRoutes();
+  
+  // -- Note: Automatic WiFi scanning is enabled by default
+  // The API will scan for networks every 15 seconds to keep the cache fresh.
+  // To disable automatic scanning: api.setAutoScanEnabled(false);
 
   Serial.println("Ready!");
   Serial.print("Access the web interface at: http://");
@@ -1015,6 +1019,6 @@ void loop()
   // -- IotWebConf main loop
   iotWebConf.doLoop();
   
-  // -- API background tasks (handles async WiFi scans)
+  // -- API background tasks (processes async WiFi scans and triggers periodic scans)
   api.loop();
 }

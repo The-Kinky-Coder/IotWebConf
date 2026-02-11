@@ -790,6 +790,7 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
       Serial.println(this->_wifiConnectionTimeoutMs);
 #endif
       this->_wifiConnectionStart = millis();
+      this->_wifiRetryCount = 0;
       // The order of WiFi.mode and WiFi.setHostname matters based on the platform
 #ifdef ESP8266
       WiFi.mode(WIFI_STA);
@@ -888,24 +889,73 @@ void IotWebConf::checkConnection()
 
 bool IotWebConf::checkWifiConnection()
 {
-  if (WiFi.status() != WL_CONNECTED)
+  wl_status_t currentStatus = WiFi.status();
+  
+  if (currentStatus != WL_CONNECTED)
   {
     if ((millis() - this->_wifiConnectionStart) > this->_wifiConnectionTimeoutMs)
     {
-      // -- WiFi not available, fall back to AP mode.
-      IOTWEBCONF_DEBUG_LINE(F("Giving up."));
-      WiFi.disconnect(true);
-      WifiAuthInfo* newWifiAuthInfo = _wifiConnectionFailureHandler();
-      if (newWifiAuthInfo != nullptr)
+      // -- Connection timeout reached, check if we should retry
+      
+      // Classify error as transient or permanent
+      bool isTransientError = (currentStatus == WL_IDLE_STATUS || 
+                                currentStatus == WL_DISCONNECTED);
+      
+      bool shouldRetry = isTransientError && 
+                         (this->_wifiRetryCount < IOTWEBCONF_WIFI_RETRY_COUNT);
+      
+      if (shouldRetry)
       {
-        // -- Try connecting with another connection info.
-        this->_wifiAuthInfo.ssid = newWifiAuthInfo->ssid;
-        this->_wifiAuthInfo.password = newWifiAuthInfo->password;
-        this->changeState(Connecting);
+        // -- Transient error, retry connection
+        this->_wifiRetryCount++;
+        
+#ifdef IOTWEBCONF_DEBUG_TO_SERIAL
+        Serial.print(F("Transient WiFi error (status="));
+        Serial.print(currentStatus);
+        Serial.print(F(") - retrying ("));
+        Serial.print(this->_wifiRetryCount);
+        Serial.print(F("/"));
+        Serial.print(IOTWEBCONF_WIFI_RETRY_COUNT);
+        Serial.println(F(")"));
+#endif
+        
+        // Disconnect and wait before retrying
+        WiFi.disconnect(true);
+        delay(IOTWEBCONF_WIFI_RETRY_DELAY_MS);
+        
+        // Reset timer and reconnect with same credentials
+        this->_wifiConnectionStart = millis();
+        WiFi.begin(this->_wifiAuthInfo.ssid, this->_wifiAuthInfo.password);
       }
       else
       {
-        this->changeState(ApMode);
+        // -- Permanent error OR retries exhausted, fall back
+        if (this->_wifiRetryCount >= IOTWEBCONF_WIFI_RETRY_COUNT)
+        {
+          IOTWEBCONF_DEBUG_LINE(F("Giving up after retries."));
+        }
+        else
+        {
+#ifdef IOTWEBCONF_DEBUG_TO_SERIAL
+          Serial.print(F("Permanent WiFi error (status="));
+          Serial.print(currentStatus);
+          Serial.println(F(") - giving up."));
+#endif
+        }
+        
+        WiFi.disconnect(true);
+        WifiAuthInfo* newWifiAuthInfo = _wifiConnectionFailureHandler();
+        if (newWifiAuthInfo != nullptr)
+        {
+          // -- Try connecting with another connection info.
+          this->_wifiAuthInfo.ssid = newWifiAuthInfo->ssid;
+          this->_wifiAuthInfo.password = newWifiAuthInfo->password;
+          this->changeState(Connecting);
+        }
+        else
+        {
+          this->changeState(ApMode);
+        }
       }
     }
     return false;

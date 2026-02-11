@@ -33,10 +33,33 @@
 # define IOTWEBCONF_DEFAULT_WIFI_CONNECTION_TIMEOUT_MS 30000
 #endif
 
+// -- Number of retry attempts for transient WiFi connection failures
+// (e.g. WL_IDLE_STATUS, WL_DISCONNECTED) before giving up.
+#ifndef IOTWEBCONF_WIFI_RETRY_COUNT
+# define IOTWEBCONF_WIFI_RETRY_COUNT 3
+#endif
+
+// -- Delay in milliseconds between WiFi retry attempts.
+#ifndef IOTWEBCONF_WIFI_RETRY_DELAY_MS
+# define IOTWEBCONF_WIFI_RETRY_DELAY_MS 5000
+#endif
+
 // -- Thing will stay in AP mode for an amount of time on boot, before retrying
 // to connect to a WiFi network.
 #ifndef IOTWEBCONF_DEFAULT_AP_MODE_TIMEOUT_SECS
 # define IOTWEBCONF_DEFAULT_AP_MODE_TIMEOUT_SECS "30"
+#endif
+
+// -- Auto-reconnect from AP mode when configured network becomes available.
+// Handles power-cut scenarios where router boots slower than device.
+#ifndef IOTWEBCONF_AP_AUTO_RECONNECT_ENABLED
+# define IOTWEBCONF_AP_AUTO_RECONNECT_ENABLED true
+#endif
+
+// -- Minimum interval between auto-reconnect attempts from AP mode.
+// Prevents rapid bouncing between AP and STA modes.
+#ifndef IOTWEBCONF_AP_AUTO_RECONNECT_INTERVAL_MS
+# define IOTWEBCONF_AP_AUTO_RECONNECT_INTERVAL_MS 120000
 #endif
 
 // -- Auto-connect to WiFi on boot when credentials are set.

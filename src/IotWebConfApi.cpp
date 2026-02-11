@@ -60,13 +60,13 @@ void IotWebConfApi::registerRoutes()
   // 2. POST /api/scan - Start WiFi scan
   _server->on("/api/scan", HTTP_POST, [this]() { this->handleApiScan(); });
   
-  // 3. GET /api/networks - Scan results
-  _server->on("/api/networks", HTTP_GET, [this]() { this->handleApiNetworks(); });
-  
-  // 4. GET /api/networks/configured - List saved networks
+  // 3. GET /api/networks/configured - List saved networks (MUST be before /api/networks)
   _server->on("/api/networks/configured", HTTP_GET, [this]() {
     this->handleApiGetConfiguredNetworks();
   });
+  
+  // 4. GET /api/networks - Scan results (more general route, registered after specific)
+  _server->on("/api/networks", HTTP_GET, [this]() { this->handleApiNetworks(); });
   
   // 5. POST /api/networks - Add network (auto-slot) [PHASE 3 NEW]
   _server->on("/api/networks", HTTP_POST, [this]() {
@@ -115,6 +115,54 @@ void IotWebConfApi::loop()
     {
       // Scan failed
       _scanRequested = false;
+    }
+  }
+  
+  // -- Automatic background WiFi scanning
+  // Trigger periodic scans to keep network cache fresh
+  if (_autoScanEnabled && !_scanRequested)
+  {
+    unsigned long now = millis();
+    
+    // Guard: Don't auto-scan during initial connection attempts
+    // Allow scanning when: connected, in AP mode (so users see network list), or after 30s
+    bool canAutoScan = (_iotWebConf->getState() == iotwebconf::OnLine) || 
+                       (_iotWebConf->getState() == iotwebconf::ApMode) ||
+                       (now > 30000);
+    
+    // Check if enough time has passed since last automatic scan
+    if (canAutoScan && (now - _lastAutoScanTime) >= IOTWEBCONF_AUTO_SCAN_INTERVAL_MS)
+    {
+      // Trigger async scan (non-blocking)
+      WiFi.scanNetworks(true); // true = async
+      _scanRequested = true;
+      _lastScanTime = now;
+      _lastAutoScanTime = now;
+      
+      IOTWEBCONF_DEBUG_LINE(F("API: Automatic WiFi scan triggered"));
+    }
+  }
+  
+  // -- Automatic reconnection from AP mode when network becomes available
+  // Handles power-cut scenarios where router boots slower than device
+  if (_apAutoReconnectEnabled && 
+      (_iotWebConf->getState() == iotwebconf::ApMode))
+  {
+    unsigned long now = millis();
+    
+    // Respect minimum interval between attempts (avoid bouncing)
+    if ((now - _lastApReconnectAttempt) >= IOTWEBCONF_AP_AUTO_RECONNECT_INTERVAL_MS)
+    {
+      // Check if any configured network is now available
+      if (isConfiguredNetworkAvailable())
+      {
+        _lastApReconnectAttempt = now;
+        
+        IOTWEBCONF_DEBUG_LINE(F("API: Configured network detected, triggering reconnection"));
+        
+        // Trigger reconnection attempt
+        _iotWebConf->forceWifiConnection();
+      }
     }
   }
 }
@@ -215,6 +263,7 @@ void IotWebConfApi::handleApiStatus()
 
 void IotWebConfApi::handleApiNetworks()
 {
+  
   // Always return cached results (never empty!)
   // This prevents UI flickering during scans
   
@@ -244,6 +293,7 @@ void IotWebConfApi::handleApiScan()
   WiFi.scanNetworks(true); // true = async
   _scanRequested = true;
   _lastScanTime = millis();
+  _lastAutoScanTime = millis(); // Reset auto-scan timer to prevent immediate auto-scan
   
   JsonDocument doc;
   doc["status"] = "Scan started";
@@ -533,6 +583,7 @@ void* IotWebConfApi::findNetworkById(const String& id, bool& outIsSingle)
 
 void IotWebConfApi::handleApiGetConfiguredNetworks()
 {
+  
   JsonDocument doc;
   JsonArray networks = doc["networks"].to<JsonArray>();
 
@@ -850,6 +901,54 @@ void IotWebConfApi::handleApiDeleteNetwork()
 }
 #endif // IOTWEBCONF_USING_ASYNC
 
+bool IotWebConfApi::isConfiguredNetworkAvailable()
+{
+  // Check if any configured SSID appears in recent scan results
+  // Used for automatic reconnection from AP mode (power-cut recovery)
+  
+  // 1. Get primary WiFi SSID
+  WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
+  String primarySsid = String(primaryWifi->_wifiSsid);
+  
+  // Check if empty (no WiFi configured)
+  if (primarySsid.length() == 0)
+  {
+    return false;
+  }
+  
+  // 2. Search network cache for primary SSID
+  for (const auto& net : _networkCache)
+  {
+    if (net.ssid == primarySsid)
+    {
+      return true;  // Found!
+    }
+  }
+  
+  // 3. Check additional networks from MultipleWifi (if configured)
+  if (_multipleWifi != nullptr)
+  {
+    ChainedWifiParameterGroup* current = _multipleWifi->getFirstSet();
+    while (current != nullptr)
+    {
+      String ssid = String(current->wifiSsid);
+      if (ssid.length() > 0)
+      {
+        for (const auto& net : _networkCache)
+        {
+          if (net.ssid == ssid)
+          {
+            return true;  // Found!
+          }
+        }
+      }
+      current = (ChainedWifiParameterGroup*)current->getNext();
+    }
+  }
+  
+  return false;  // No configured networks found in scan
+}
+
 #ifdef IOTWEBCONF_API_HAS_ASYNC_SUPPORT
 // ═══════════════════════════════════════════════════════
 // ASYNCWEBSERVER ROUTE REGISTRATION
@@ -886,37 +985,16 @@ void IotWebConfApi::registerRoutesAsync()
     WiFi.scanNetworks(true);
     _scanRequested = true;
     _lastScanTime = millis();
+    _lastAutoScanTime = millis();
     
     JsonDocument doc;
     doc["status"] = "Scan started";
     sendJsonAsync(request, 202, doc);
   });
 
-  // 3. GET /api/networks - Scan results
-  _asyncServer->on("/api/networks", HTTP_GET, [this](AsyncWebServerRequest* request) {
-    // Always return cached results (never empty!)
-    JsonDocument doc;
-    JsonArray networks = doc["networks"].to<JsonArray>();
-    
-    // Add all cached networks
-    for (const auto& net : _networkCache)
-    {
-      JsonObject obj = networks.add<JsonObject>();
-      obj["ssid"] = net.ssid;
-      obj["rssi"] = net.rssi;
-      obj["encryption"] = net.encryption;
-      obj["lastSeen"] = (millis() - net.lastSeen) / 1000; // seconds ago
-    }
-    
-    // Include scanning status
-    int scanStatus = WiFi.scanComplete();
-    doc["scanning"] = (scanStatus == -1); // -1 = scan in progress
-    
-    sendJsonAsync(request, 200, doc);
-  });
-
-  // 4. GET /api/networks/configured - List saved networks
+  // 3. GET /api/networks/configured - List saved networks (MUST be before /api/networks)
   _asyncServer->on("/api/networks/configured", HTTP_GET, [this](AsyncWebServerRequest* request) {
+    
     JsonDocument doc;
     JsonArray networks = doc["networks"].to<JsonArray>();
 
@@ -946,6 +1024,29 @@ void IotWebConfApi::registerRoutesAsync()
       }
     }
 
+    sendJsonAsync(request, 200, doc);
+  });
+
+  // 4. GET /api/networks - Scan results (more general route, registered after specific)
+  _asyncServer->on("/api/networks", HTTP_GET, [this](AsyncWebServerRequest* request) {
+    // Always return cached results (never empty!)
+    JsonDocument doc;
+    JsonArray networks = doc["networks"].to<JsonArray>();
+    
+    // Add all cached networks
+    for (const auto& net : _networkCache)
+    {
+      JsonObject obj = networks.add<JsonObject>();
+      obj["ssid"] = net.ssid;
+      obj["rssi"] = net.rssi;
+      obj["encryption"] = net.encryption;
+      obj["lastSeen"] = (millis() - net.lastSeen) / 1000; // seconds ago
+    }
+    
+    // Include scanning status
+    int scanStatus = WiFi.scanComplete();
+    doc["scanning"] = (scanStatus == -1); // -1 = scan in progress
+    
     sendJsonAsync(request, 200, doc);
   });
 

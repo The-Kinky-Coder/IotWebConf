@@ -4,8 +4,22 @@
 
 ### Fixed
 - **Captive Portal with IPv6**: Fixed captive portal redirect failing when IPv6 is enabled. The `localAddress()` method now skips unspecified addresses (`::` or `0.0.0.0`) and falls back to valid IPv4 addresses in AP mode. This allows IPv4-only captive portal operation while maintaining full dual-stack support in station mode.
+- **AsyncWebServer route matching**: Fixed `/api/networks/configured` returning scan results instead of configured networks when using AsyncWebServer. AsyncWebServer uses prefix matching, so more specific routes (longer paths) must be registered BEFORE less specific routes. The fix reorders route registration so `/api/networks/configured` is registered before `/api/networks`.
 
 ### Added
+
+#### WiFi Retry Logic for Transient Failures
+- **Automatic retry mechanism**: IotWebConf now retries WiFi connections up to 3 times for transient errors (WL_IDLE_STATUS, WL_DISCONNECTED) before falling back to AP mode or trying alternate networks.
+- **Configurable retry behavior**: New constants `IOTWEBCONF_WIFI_RETRY_COUNT` (default: 3) and `IOTWEBCONF_WIFI_RETRY_DELAY_MS` (default: 5000ms) allow customization of retry attempts and delays.
+- **Intelligent error classification**: Distinguishes between transient errors (e.g., WiFi not initialized, temporary disconnect) and permanent errors (e.g., wrong password, SSID not found) to avoid unnecessary retries.
+- **Graceful fallback**: On retry exhaustion or permanent errors, flow continues to MultipleWifi network fallback or AP mode as before.
+
+#### AP Mode Auto-Reconnect for Power-Cut Recovery
+- **Automatic network detection**: When in AP mode, device monitors WiFi scans and automatically attempts reconnection when configured networks become available.
+- **Power-cut resilience**: Solves the scenario where routers boot slower than microcontrollers - device no longer gets stuck in AP mode waiting for manual reconnection.
+- **Configurable behavior**: New constants `IOTWEBCONF_AP_AUTO_RECONNECT_ENABLED` (default: true) and `IOTWEBCONF_AP_AUTO_RECONNECT_INTERVAL_MS` (default: 120000ms / 2 minutes) control the feature.
+- **Runtime control**: Use `api.setApAutoReconnectEnabled(false)` to disable for dedicated AP devices.
+- **Intelligent timing**: Attempts reconnection only after configured interval has elapsed to prevent rapid bouncing between AP and STA modes.
 
 #### ESP32 IPv6 Dual-Stack Support
 - Added `IpAddress` abstraction with IPv4/IPv6 parsing and formatting.
@@ -98,14 +112,26 @@
   - Protected: Cannot delete currently active network (409 Conflict)
   - Saves changes to EEPROM immediately
   - Supports both sync and async WebServer
+- **Automatic Background WiFi Scanning** - IotWebConfApi now scans networks periodically
+  - Scans every 15 seconds by default (configurable via `IOTWEBCONF_AUTO_SCAN_INTERVAL_MS`)
+  - Enabled by default (opt-out via `api.setAutoScanEnabled(false)`)
+  - Keeps network cache fresh automatically (no manual `POST /api/scan` required)
+  - Network cache expires stale entries after 45 seconds (3 scan intervals)
+  - Manual scans still supported and don't conflict with automatic scans
+  - Configurable at compile-time or runtime
 - **Configuration Constants**
   - `IOTWEBCONF_MAX_WIFI_NETWORKS` - Maximum networks (default: 10)
   - `IOTWEBCONF_WIFI_CONNECT_TIMEOUT_MS` - Connection timeout (default: 10000ms)
+  - `IOTWEBCONF_AUTO_SCAN_INTERVAL_MS` - Automatic scan interval (default: 15000ms)
+  - `IOTWEBCONF_AUTO_SCAN_ENABLED_DEFAULT` - Auto-scan default state (default: true)
 - **Helper Methods**
   - `findAvailableSlot()` - Find next empty network slot
   - `getConfiguredNetworkCount()` - Count non-empty networks
   - `isNetworkActive()` - Check if network is currently connected
   - `getNetworkSlot()` - Get slot number for network ID
+- **API Control Methods**
+  - `setAutoScanEnabled(bool)` - Enable/disable automatic background scanning
+  - `getAutoScanEnabled()` - Check if automatic scanning is enabled
 
 ### Changed
 

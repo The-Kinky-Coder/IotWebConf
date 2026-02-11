@@ -50,6 +50,25 @@
 # define IOTWEBCONF_WIFI_CONNECT_TIMEOUT_MS 10000
 #endif
 
+// ═══════════════════════════════════════════════════════
+// AUTOMATIC BACKGROUND WIFI SCANNING
+// ═══════════════════════════════════════════════════════
+
+// Automatic WiFi scan interval in milliseconds
+// Default: 15 seconds (allows 3 scans within 45-second cache window)
+#ifndef IOTWEBCONF_AUTO_SCAN_INTERVAL_MS
+# define IOTWEBCONF_AUTO_SCAN_INTERVAL_MS 60000
+#endif
+
+// Enable automatic background scanning by default
+// Set to false to require manual POST /api/scan calls
+#ifndef IOTWEBCONF_AUTO_SCAN_ENABLED_DEFAULT
+# define IOTWEBCONF_AUTO_SCAN_ENABLED_DEFAULT true
+#endif
+
+// Import AP auto-reconnect constants from settings
+#include "IotWebConfSettings.h"
+
 namespace iotwebconf
 {
 
@@ -102,6 +121,39 @@ public:
   void handleApiGetConfig();
   void handleApiSetConfig();
   void handleApiScan();
+
+  /**
+   * Enable or disable automatic background WiFi scanning.
+   * When enabled (default), IotWebConfApi::loop() automatically triggers
+   * WiFi scans at IOTWEBCONF_AUTO_SCAN_INTERVAL_MS intervals.
+   * 
+   * @param enabled - true to enable automatic scanning, false to disable
+   */
+  void setAutoScanEnabled(bool enabled) { _autoScanEnabled = enabled; }
+  
+  /**
+   * Check if automatic background WiFi scanning is enabled.
+   * 
+   * @return true if auto-scanning is enabled, false otherwise
+   */
+  bool getAutoScanEnabled() const { return _autoScanEnabled; }
+
+  /**
+   * Enable or disable automatic reconnection from AP mode.
+   * When enabled (default), device automatically attempts to reconnect
+   * to configured networks when detected in scan results while in AP mode.
+   * Useful for power-cut scenarios where router boots slower than device.
+   * 
+   * @param enabled - true to enable auto-reconnect, false to disable
+   */
+  void setApAutoReconnectEnabled(bool enabled) { _apAutoReconnectEnabled = enabled; }
+  
+  /**
+   * Check if automatic reconnection from AP mode is enabled.
+   * 
+   * @return true if AP auto-reconnect is enabled, false otherwise
+   */
+  bool getApAutoReconnectEnabled() const { return _apAutoReconnectEnabled; }
 
   // ═══════════════════════════════════════════════════════
   // PHASE 2 NETWORK MANAGEMENT API
@@ -194,8 +246,16 @@ private:
 #endif
 
   // -- Async scan handling
-  unsigned long _lastScanTime = 0;
-  bool _scanRequested = false;
+  unsigned long _lastScanTime = 0;          // Timestamp of last scan (manual or automatic)
+  bool _scanRequested = false;              // True when async scan is in progress
+  
+  // -- Automatic background scanning
+  bool _autoScanEnabled = IOTWEBCONF_AUTO_SCAN_ENABLED_DEFAULT;
+  unsigned long _lastAutoScanTime = 0 - IOTWEBCONF_AUTO_SCAN_INTERVAL_MS;  // Init for immediate first scan
+  
+  // -- Automatic reconnection from AP mode
+  bool _apAutoReconnectEnabled = IOTWEBCONF_AP_AUTO_RECONNECT_ENABLED;
+  unsigned long _lastApReconnectAttempt = 0;
 
   // ═══════════════════════════════════════════════════════
   // NETWORK CACHE FOR FLICKER-FREE UI
@@ -311,6 +371,14 @@ private:
    * @return Slot number (0-based), or -1 if not found
    */
   int getNetworkSlot(const String& id);
+
+  /**
+   * Check if any configured network SSID is currently available in scan cache.
+   * Used for automatic reconnection from AP mode (power-cut recovery).
+   * 
+   * @return true if any configured network is visible in recent scans
+   */
+  bool isConfiguredNetworkAvailable();
 };
 
 } // namespace iotwebconf

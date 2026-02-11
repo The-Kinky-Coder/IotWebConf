@@ -807,6 +807,8 @@ private:
   bool _blinkStateOn = false;
   unsigned long _lastBlinkTime = 0;
   unsigned long _wifiConnectionStart = 0;
+  int _wifiRetryCount = 0;
+  wl_status_t _lastWifiStatus = WL_IDLE_STATUS;
   // TODO: authinfo
   WifiAuthInfo _wifiAuthInfo;
   HtmlFormatProvider htmlFormatProviderInstance;

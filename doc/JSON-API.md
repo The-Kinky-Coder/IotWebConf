@@ -58,6 +58,76 @@ void loop() {
 }
 ```
 
+### 5. Automatic Background Scanning
+By default, IotWebConfApi automatically scans for WiFi networks every 15 seconds to keep the network cache fresh. This eliminates the need for manual `POST /api/scan` calls in most applications.
+
+#### How It Works
+- The API maintains a cached list of available networks
+- Every 15 seconds, a background scan is automatically triggered
+- Scan results are merged into the cache (existing networks updated, stale networks removed)
+- The cache expires networks not seen for 45+ seconds (3 scan intervals)
+- Manual scans via `POST /api/scan` are still supported and don't conflict
+
+#### Configuration
+You can customize or disable automatic scanning:
+
+**Disable automatic scanning:**
+```cpp
+void setup() {
+  // ... (standard setup)
+  api.registerRoutes();
+  
+  // Disable automatic scanning (manual POST /api/scan required)
+  api.setAutoScanEnabled(false);
+}
+```
+
+**Change scan interval (compile-time):**
+```ini
+# platformio.ini
+build_flags =
+  -D IOTWEBCONF_AUTO_SCAN_INTERVAL_MS=30000  ; 30 seconds
+```
+
+**Change default enabled state (compile-time):**
+```ini
+# platformio.ini
+build_flags =
+  -D IOTWEBCONF_AUTO_SCAN_ENABLED_DEFAULT=false  ; Disabled by default
+```
+
+#### API Methods
+```cpp
+// Disable/enable automatic scanning at runtime
+api.setAutoScanEnabled(false);  // Disable
+api.setAutoScanEnabled(true);   // Re-enable
+
+// Check current state
+bool isEnabled = api.getAutoScanEnabled();
+```
+
+#### Benefits
+- ✅ **Always up-to-date network list** - No manual intervention required
+- ✅ **Smooth user experience** - UI never shows "empty" or stale networks
+- ✅ **Efficient** - Async scanning doesn't block main loop
+- ✅ **Compatible** - Works with all WebServer types (sync and async)
+
+#### Cache Behavior
+The cache system prevents UI flickering:
+- `GET /api/networks` always returns results (never empty during scans)
+- The `scanning` field indicates if a scan is in progress
+- Networks age out gracefully (45-second window)
+
+**Example response during auto-scan:**
+```json
+{
+  "networks": [
+    {"ssid": "HomeWiFi", "rssi": -45, "encryption": 3, "lastSeen": 2}
+  ],
+  "scanning": true
+}
+```
+
 ## API Reference
 
 ### 1. Get Status
@@ -839,6 +909,13 @@ Complete working examples are available in the `examples/` directory:
 ---
 
 ## Version History
+
+### Phase 3 (Unreleased) - Automatic Background Scanning
+- Added automatic WiFi scanning every 15 seconds (default)
+- Added `setAutoScanEnabled()` / `getAutoScanEnabled()` methods
+- Added compile-time constants: `IOTWEBCONF_AUTO_SCAN_INTERVAL_MS` and `IOTWEBCONF_AUTO_SCAN_ENABLED_DEFAULT`
+- Improved network cache system with 45-second stale timeout
+- Manual `POST /api/scan` still supported for on-demand scanning
 
 ### Phase 2 (v3.2.0) - Network Management API
 - Added `GET /api/networks/configured`
