@@ -28,6 +28,7 @@ public:
   bool isV4() const { return this->_type == V4; }
   bool isV6() const { return this->_type == V6; }
   bool isSet() const { return this->_type != None; }
+  bool isUnspecified() const;
 
   String toString(bool bracketIpv6 = false) const;
 

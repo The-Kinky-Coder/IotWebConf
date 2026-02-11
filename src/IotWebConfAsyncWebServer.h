@@ -13,7 +13,7 @@
 #define IotWebConfAsyncWebServer_h
 
 // Only compile this wrapper if ESPAsyncWebServer is available
-#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_)
+#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_) || defined(IOTWEBCONF_USING_ASYNC)
 
 #include <Arduino.h>
 #include <IotWebConfWebServerWrapper.h>
@@ -83,12 +83,12 @@ public:
     }
 #if defined(ESP32) && defined(CONFIG_LWIP_IPV6)
     IpAddress wifiV6 = IpAddress::fromString(WiFi.globalIPv6().toString());
-    if (wifiV6.isSet())
+    if (wifiV6.isSet() && !wifiV6.isUnspecified())
     {
       return wifiV6;
     }
     wifiV6 = IpAddress::fromString(WiFi.linkLocalIPv6().toString());
-    if (wifiV6.isSet())
+    if (wifiV6.isSet() && !wifiV6.isUnspecified())
     {
       return wifiV6;
     }

@@ -68,6 +68,34 @@ void test_equality()
   TEST_ASSERT_TRUE(first != third);
 }
 
+void test_ipv6_unspecified()
+{
+  IpAddress address = IpAddress::parse("::");
+  TEST_ASSERT_TRUE(address.isSet());
+  TEST_ASSERT_TRUE(address.isV6());
+  TEST_ASSERT_TRUE(address.isUnspecified());
+  
+  // Regular IPv6 addresses should not be unspecified
+  IpAddress regularV6 = IpAddress::parse("2001:db8::1");
+  TEST_ASSERT_TRUE(regularV6.isSet());
+  TEST_ASSERT_TRUE(regularV6.isV6());
+  TEST_ASSERT_FALSE(regularV6.isUnspecified());
+}
+
+void test_ipv4_unspecified()
+{
+  IpAddress address = IpAddress::parse("0.0.0.0");
+  TEST_ASSERT_TRUE(address.isSet());
+  TEST_ASSERT_TRUE(address.isV4());
+  TEST_ASSERT_TRUE(address.isUnspecified());
+  
+  // Regular IPv4 addresses should not be unspecified
+  IpAddress regularV4 = IpAddress::parse("192.168.1.1");
+  TEST_ASSERT_TRUE(regularV4.isSet());
+  TEST_ASSERT_TRUE(regularV4.isV4());
+  TEST_ASSERT_FALSE(regularV4.isUnspecified());
+}
+
 void setup()
 {
   UNITY_BEGIN();
@@ -77,6 +105,8 @@ void setup()
   RUN_TEST(test_ipv6_parse_compressed);
   RUN_TEST(test_ipv6_bracketed);
   RUN_TEST(test_equality);
+  RUN_TEST(test_ipv6_unspecified);
+  RUN_TEST(test_ipv4_unspecified);
   UNITY_END();
 }
 

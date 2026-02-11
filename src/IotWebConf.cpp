@@ -95,6 +95,64 @@ bool IotWebConf::init()
   return validConfig;
 }
 
+void IotWebConf::setupRequestHandlers()
+{
+#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_) || defined(IOTWEBCONF_USING_ASYNC)
+  // Check if we're using AsyncWebServer
+  if (this->_asyncWebServerWrapper._server != nullptr)
+  {
+    AsyncWebServer* asyncServer = this->_asyncWebServerWrapper._server;
+    
+    // Root page handler
+    asyncServer->on("/", HTTP_GET, [this](AsyncWebServerRequest* request) {
+      AsyncWebRequestWrapper wrapper(request);
+      
+      // Check captive portal first
+      if (this->handleCaptivePortal(&wrapper))
+      {
+        // Request was handled by captive portal
+        return;
+      }
+      
+      // In AP mode, redirect to config page
+      if (this->_state == ApMode)
+      {
+        request->redirect("/config");
+        return;
+      }
+      
+      // Default: send to config page
+      this->handleConfig(&wrapper);
+    });
+    
+    // Config page handlers (GET and POST)
+    asyncServer->on("/config", HTTP_GET, [this](AsyncWebServerRequest* request) {
+      AsyncWebRequestWrapper wrapper(request);
+      this->handleConfig(&wrapper);
+    });
+    
+    asyncServer->on("/config", HTTP_POST, [this](AsyncWebServerRequest* request) {
+      AsyncWebRequestWrapper wrapper(request);
+      this->handleConfig(&wrapper);
+    });
+    
+    // 404 Not Found handler with captive portal support
+    asyncServer->onNotFound([this](AsyncWebServerRequest* request) {
+      AsyncWebRequestWrapper wrapper(request);
+      this->handleNotFound(&wrapper);
+    });
+    
+    IOTWEBCONF_DEBUG_LINE(F("AsyncWebServer request handlers registered"));
+    return;
+  }
+#endif
+
+  // For synchronous WebServer, routes need to be set up manually by the user
+  // because WebServer requires on() to be called before begin()
+  // Users should call server.on() in their setup() code
+  IOTWEBCONF_DEBUG_LINE(F("Synchronous WebServer: register handlers manually before server.begin()"));
+}
+
 //////////////////////////////////////////////////////////////////
 
 void IotWebConf::addParameterGroup(ParameterGroup* group)

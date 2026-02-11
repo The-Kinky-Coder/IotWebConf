@@ -24,12 +24,14 @@
 # include <ESP8266WebServer.h>
 #elif defined(ESP32)
 # include <WiFi.h>
-# include <WebServer.h>
+# ifndef IOTWEBCONF_USING_ASYNC
+#  include <WebServer.h>
+# endif
 #endif
 #include <IotWebConf.h>
 
 // Include AsyncWebServer support if available
-#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_)
+#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_) || defined(IOTWEBCONF_USING_ASYNC)
 # include <ESPAsyncWebServer.h>
 # define IOTWEBCONF_API_HAS_ASYNC_SUPPORT
 #endif
@@ -57,12 +59,14 @@ class MultipleWifiAddition;
 class IotWebConfApi
 {
 public:
+#ifndef IOTWEBCONF_USING_ASYNC
   /**
    * Constructor for synchronous WebServer
    * @param iotWebConf - IotWebConf instance
    * @param server - Synchronous WebServer instance
    */
   IotWebConfApi(IotWebConf* iotWebConf, WebServer* server);
+#endif
 
 #ifdef IOTWEBCONF_API_HAS_ASYNC_SUPPORT
   /**
@@ -78,7 +82,7 @@ public:
   
   // -- Helper to register all API routes at once.
   // -- Example: api.registerRoutes();
-  // -- This assumes the server has an 'on' method (which ESP WebServer does)
+  // -- If constructed with AsyncWebServer, this auto-dispatches to registerRoutesAsync().
   void registerRoutes();
 
 #ifdef IOTWEBCONF_API_HAS_ASYNC_SUPPORT
@@ -179,7 +183,9 @@ public:
 
 private:
   IotWebConf* _iotWebConf;
-  WebServer* _server;
+#ifndef IOTWEBCONF_USING_ASYNC
+  WebServer* _server = nullptr;
+#endif
   std::function<void()> _configSavedCallback = nullptr;
 
 #ifdef IOTWEBCONF_API_HAS_ASYNC_SUPPORT

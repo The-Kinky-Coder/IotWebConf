@@ -10,6 +10,7 @@
 namespace iotwebconf
 {
 
+#ifndef IOTWEBCONF_USING_ASYNC
 IotWebConfApi::IotWebConfApi(IotWebConf* iotWebConf, WebServer* server)
 {
   _iotWebConf = iotWebConf;
@@ -18,13 +19,13 @@ IotWebConfApi::IotWebConfApi(IotWebConf* iotWebConf, WebServer* server)
   _isAsync = false;
 #endif
 }
+#endif
 
 #ifdef IOTWEBCONF_API_HAS_ASYNC_SUPPORT
 IotWebConfApi::IotWebConfApi(IotWebConf* iotWebConf, AsyncWebServer* server)
 {
   _iotWebConf = iotWebConf;
   _asyncServer = server;
-  _server = nullptr;
   _isAsync = true;
 }
 #endif
@@ -36,6 +37,19 @@ void IotWebConfApi::setConfigSavedCallback(std::function<void()> func)
 
 void IotWebConfApi::registerRoutes()
 {
+#ifdef IOTWEBCONF_API_HAS_ASYNC_SUPPORT
+  if (_isAsync && (_asyncServer != nullptr))
+  {
+    registerRoutesAsync();
+    return;
+  }
+#endif
+#ifndef IOTWEBCONF_USING_ASYNC
+  if (_server == nullptr)
+  {
+    return;
+  }
+
   // ═══════════════════════════════════════════════════════
   // PHASE 3 JSON API - 10 ENDPOINTS TOTAL
   // ═══════════════════════════════════════════════════════
@@ -82,6 +96,7 @@ void IotWebConfApi::registerRoutes()
   // - POST /api/wifi (redundant with POST /api/networks)
   // - POST /api/networks/{id} (manual slot update - use auto-slot instead)
   // ═══════════════════════════════════════════════════════
+#endif // IOTWEBCONF_USING_ASYNC
 }
 
 void IotWebConfApi::loop()
@@ -257,6 +272,7 @@ void IotWebConfApi::handleApiGetConfig()
   sendJson(200, doc);
 }
 
+#ifndef IOTWEBCONF_USING_ASYNC
 void IotWebConfApi::handleApiSetConfig()
 {
   if (!_server->hasArg("plain")) 
@@ -293,8 +309,9 @@ void IotWebConfApi::handleApiSetConfig()
   resDoc["status"] = "Saved";
   sendJson(200, resDoc);
 }
+#endif // IOTWEBCONF_USING_ASYNC
 
-
+#ifndef IOTWEBCONF_USING_ASYNC
 void IotWebConfApi::sendJson(int code, JsonDocument& doc)
 {
   String response;
@@ -302,6 +319,7 @@ void IotWebConfApi::sendJson(int code, JsonDocument& doc)
   _server->sendHeader("Access-Control-Allow-Origin", "*");
   _server->send(code, "application/json", response);
 }
+#endif // IOTWEBCONF_USING_ASYNC
 
 #ifdef IOTWEBCONF_API_HAS_ASYNC_SUPPORT
 void IotWebConfApi::sendJsonAsync(AsyncWebServerRequest* request, int code, JsonDocument& doc)
@@ -558,6 +576,7 @@ void IotWebConfApi::handleApiGetConfiguredNetworks()
 //
 // void IotWebConfApi::handleApiUpdateNetwork() - REMOVED
 
+#ifndef IOTWEBCONF_USING_ASYNC
 void IotWebConfApi::handleApiConnectToNetwork()
 {
   // 1. Extract network ID from URL
@@ -829,6 +848,7 @@ void IotWebConfApi::handleApiDeleteNetwork()
   resDoc["id"] = networkId;
   sendJson(200, resDoc);
 }
+#endif // IOTWEBCONF_USING_ASYNC
 
 #ifdef IOTWEBCONF_API_HAS_ASYNC_SUPPORT
 // ═══════════════════════════════════════════════════════

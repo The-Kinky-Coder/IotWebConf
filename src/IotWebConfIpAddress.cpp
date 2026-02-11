@@ -52,6 +52,31 @@ IpAddress IpAddress::parse(const char* text)
   return result;
 }
 
+bool IpAddress::isUnspecified() const
+{
+  if (this->_type == None)
+  {
+    return false;
+  }
+
+  if (this->_type == V4)
+  {
+    // Check if 0.0.0.0
+    return (this->_bytes[0] == 0 && this->_bytes[1] == 0 &&
+            this->_bytes[2] == 0 && this->_bytes[3] == 0);
+  }
+
+  // V6: Check if :: (all zeros)
+  for (int i = 0; i < 16; i++)
+  {
+    if (this->_bytes[i] != 0)
+    {
+      return false;
+    }
+  }
+  return true;
+}
+
 String IpAddress::toString(bool bracketIpv6) const
 {
   if (this->_type == None)

@@ -83,34 +83,12 @@ void setup()
   // -- Initialize IotWebConf
   iotWebConf.init();
 
-  // -- Set up URL handlers on the async web server
+  // -- OPTION 1: Automatic registration (simplified approach)
+  // Register IotWebConf's core routes automatically (/, /config, 404)
+  // This must be called BEFORE server.begin() and AFTER any custom routes
+  // that you want to take precedence over IotWebConf's default handling
   
-  // Root page handler
-  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
-    // Let IotWebConf handle captive portal requests
-    if (iotWebConf.handleCaptivePortal())
-    {
-      // Captive portal was served
-      return;
-    }
-    
-    requestCounter++;
-    String html = getHtmlPage();
-    request->send(200, "text/html", html);
-  });
-
-  // Config page handler - delegates to IotWebConf
-  server.on("/config", HTTP_GET, [](AsyncWebServerRequest *request){
-    AsyncWebRequestWrapper wrapper(request);
-    iotWebConf.handleConfig(&wrapper);
-  });
-  
-  server.on("/config", HTTP_POST, [](AsyncWebServerRequest *request){
-    AsyncWebRequestWrapper wrapper(request);
-    iotWebConf.handleConfig(&wrapper);
-  });
-
-  // Custom API endpoint (demonstrates async alongside IotWebConf)
+  // Custom API endpoint (add BEFORE setupRequestHandlers to take precedence)
   server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest *request){
     String json = "{";
     json += "\"device\":\"" + String(thingName) + "\",";
@@ -121,11 +99,44 @@ void setup()
     request->send(200, "application/json", json);
   });
 
-  // 404 handler
-  server.onNotFound([](AsyncWebServerRequest *request){
+  // Custom root page handler (overrides IotWebConf's default)
+  server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+    // Let IotWebConf handle captive portal requests
     AsyncWebRequestWrapper wrapper(request);
-    iotWebConf.handleNotFound(&wrapper);
+    if (iotWebConf.handleCaptivePortal(&wrapper))
+    {
+      // Captive portal was served
+      return;
+    }
+    
+    requestCounter++;
+    String html = getHtmlPage();
+    request->send(200, "text/html", html);
   });
+
+  // Now register IotWebConf's core handlers
+  // This will add /config (GET and POST) and 404 handler
+  iotWebConf.setupRequestHandlers();
+
+  /* OPTION 2: Manual registration (for more control)
+   * If you need more control or want to customize the handling,
+   * you can register routes manually:
+   * 
+   * server.on("/config", HTTP_GET, [](AsyncWebServerRequest *request){
+   *   AsyncWebRequestWrapper wrapper(request);
+   *   iotWebConf.handleConfig(&wrapper);
+   * });
+   * 
+   * server.on("/config", HTTP_POST, [](AsyncWebServerRequest *request){
+   *   AsyncWebRequestWrapper wrapper(request);
+   *   iotWebConf.handleConfig(&wrapper);
+   * });
+   * 
+   * server.onNotFound([](AsyncWebServerRequest *request){
+   *   AsyncWebRequestWrapper wrapper(request);
+   *   iotWebConf.handleNotFound(&wrapper);
+   * });
+   */
 
   Serial.println("Ready.");
   Serial.print("Initial AP Password: ");

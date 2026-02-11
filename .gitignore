@@ -4,3 +4,4 @@ Agents/
 AgentProgress/
 opencode.json
 *.md
+.pio/

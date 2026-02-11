@@ -2,14 +2,20 @@
 
 ## [Unreleased] - Phase 1 + Phase 2 + Phase 3
 
+### Fixed
+- **Captive Portal with IPv6**: Fixed captive portal redirect failing when IPv6 is enabled. The `localAddress()` method now skips unspecified addresses (`::` or `0.0.0.0`) and falls back to valid IPv4 addresses in AP mode. This allows IPv4-only captive portal operation while maintaining full dual-stack support in station mode.
+
 ### Added
 
 #### ESP32 IPv6 Dual-Stack Support
 - Added `IpAddress` abstraction with IPv4/IPv6 parsing and formatting.
+- Added `IpAddress::isUnspecified()` method to detect unspecified addresses (`::` or `0.0.0.0`).
+- Added `WebRequestWrapper::localAddress()` for IPv6-aware local address handling.
 - Added `WebRequestWrapper::localAddress()` for IPv6-aware local address handling.
 - Captive portal redirect now brackets IPv6 literals in Location headers.
 - Status API now exposes `ip_v4`, `ip_v6`, and boolean `ip_v6_ll` fields.
 - Added `IpStringDataType` for IPv6-capable configuration parameters.
+- **Constructor overloads for integer configVersion**: All IotWebConf constructors now accept `int configVersion` in addition to `const char* configVersion`, automatically converting integers to strings internally for convenience.
 
 #### Phase 1: AsyncWebServer Support
 - **AsyncWebServer wrapper** (`src/IotWebConfAsyncWebServer.h`)

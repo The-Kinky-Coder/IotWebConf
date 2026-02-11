@@ -28,6 +28,7 @@ Also visit experimental [Discord server](https://discord.gg/GR3uQeD).
 
   - Manages WiFi connection settings,
   - Provides a config portal user interface,
+  - **ESPAsyncWebServer support** - Fully compatible with both synchronous and async web servers,
   - **Highly customizable HTML rendering (Bootstrap, Tailwind, etc.)**,
   - You can extend the configuration with your own sophisticated propery structure, that is stored automatically,
   - Option to configure multiple WiFi connections. (Try next when the
@@ -39,6 +40,7 @@ Also visit experimental [Discord server](https://discord.gg/GR3uQeD).
   - Firmware OTA update support,
   - Config portal remains available even after WiFi is connected,
   - Automatic "Sign in to network" pop up in your browser (captive portal),
+  - **JSON REST API** for headless WiFi network management,
   - Non-blocking - Your custom code will not be blocked in the whole process.
   - Well documented header file, and examples from simple to complex levels.
 
@@ -56,6 +58,35 @@ You can find the default password in the sources. :)
 IotWebConf saves configuration in the "EEPROM". You can extend the config portal with your custom configuration items. Those items will be also maintained by IotWebConf.
 
 Visit [Users Manual](doc/UsersManual.md) for detailed description!
+
+## ESPAsyncWebServer Support
+
+IotWebConf fully supports **ESPAsyncWebServer** for non-blocking, high-performance web server operation:
+
+```cpp
+#include <ESPAsyncWebServer.h>
+#include <IotWebConf.h>
+
+AsyncWebServer server(80);
+IotWebConf iotWebConf("Device", &dnsServer, &server, "password", "v1");
+
+void setup() {
+    iotWebConf.init();
+    iotWebConf.setupRequestHandlers();  // Automatic route registration
+}
+```
+
+Note: include ESPAsyncWebServer before IotWebConf so async support is enabled.
+
+**Key features:**
+- ✅ Drop-in replacement for synchronous WebServer
+- ✅ Same IotWebConf API for both server types
+- ✅ Automatic server type detection
+- ✅ Full captive portal support
+- ✅ JSON API works with both sync and async
+- ✅ Easy migration from sync to async
+
+See [AsyncWebServer Integration Guide](doc/AsyncWebServerIntegration.md) and [Migration Notes](doc/ASYNC-MIGRATION.md) for details!
 
 ## Use cases
   1. **You turn on your IoT the first time** - It turns into AP (access point) mode, and waits for you on the 192.168.4.1 address with a web interface to set up your local network (and other configurations). For the first time a default password is used when you connect to the AP. When you connect to the AP, your device will likely automatically pop up the portal page. (We call this a Captive Portal.) When configuration is done, you must leave the AP. The device detects that no one is connected, and continues with normal operation.

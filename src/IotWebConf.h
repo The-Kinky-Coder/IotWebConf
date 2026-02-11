@@ -24,13 +24,18 @@
 # include <ESP8266WebServer.h>
 #elif defined(ESP32)
 # include <WiFi.h>
-# include <WebServer.h>
+# ifndef IOTWEBCONF_USING_ASYNC
+#  include <WebServer.h>
+# endif
 #endif
 #include <DNSServer.h> // -- For captive portal
 
 // -- Include AsyncWebServer wrapper if available
-#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_)
-# include <IotWebConfAsyncWebServer.h>
+#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_) || defined(IOTWEBCONF_USING_ASYNC)
+# ifndef IOTWEBCONF_ASYNC_WRAPPER_INCLUDED
+#  include <IotWebConfAsyncWebServer.h>
+#  define IOTWEBCONF_ASYNC_WRAPPER_INCLUDED
+# endif
 #endif
 
 #ifdef ESP8266
@@ -107,6 +112,7 @@ protected:
   virtual String getBodyInner() { return FPSTR(IOTWEBCONF_HTML_BODY_INNER); }
 };
 
+#ifndef IOTWEBCONF_USING_ASYNC
 class StandardWebRequestWrapper : public WebRequestWrapper
 {
 public:
@@ -128,12 +134,12 @@ public:
     }
 #if defined(ESP32) && defined(CONFIG_LWIP_IPV6)
     IpAddress wifiV6 = IpAddress::fromString(WiFi.globalIPv6().toString());
-    if (wifiV6.isSet())
+    if (wifiV6.isSet() && !wifiV6.isUnspecified())
     {
       return wifiV6;
     }
     wifiV6 = IpAddress::fromString(WiFi.linkLocalIPv6().toString());
-    if (wifiV6.isSet())
+    if (wifiV6.isSet() && !wifiV6.isUnspecified())
     {
       return wifiV6;
     }
@@ -189,6 +195,7 @@ private:
   WebServer* _server;
   friend IotWebConf;
 };
+#endif // IOTWEBCONF_USING_ASYNC
 
 class WifiParameterGroup : public ParameterGroup
 {
@@ -212,6 +219,7 @@ public:
 class IotWebConf
 {
 public:
+#ifndef IOTWEBCONF_USING_ASYNC
   /**
    * Create a new configuration handler.
    *   @thingName - Initial value for the thing name. Used in many places like AP name, can be changed by the user.
@@ -229,7 +237,21 @@ public:
     this->_standardWebServerWrapper._server = server;
   }
 
-#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_)
+  /**
+   * Constructor overload accepting int configVersion.
+   * Automatically converts the int to a string for internal use.
+   */
+  IotWebConf(
+      const char* thingName, DNSServer* dnsServer, WebServer* server,
+      const char* initialApPassword, int configVersion) :
+      IotWebConf(thingName, dnsServer, server, initialApPassword, "init")
+  {
+    snprintf(this->_configVersionBuffer, sizeof(this->_configVersionBuffer), "%d", configVersion);
+    this->_configVersion = this->_configVersionBuffer;
+  }
+#endif // IOTWEBCONF_USING_ASYNC
+
+#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_) || defined(IOTWEBCONF_USING_ASYNC)
   /**
    * Create a new configuration handler with AsyncWebServer support.
    * Use this constructor when you want to share an AsyncWebServer instance
@@ -248,6 +270,19 @@ public:
       IotWebConf(thingName, dnsServer, &this->_asyncWebServerWrapper, initialApPassword, configVersion)
   {
     this->_asyncWebServerWrapper._server = server;
+  }
+
+  /**
+   * Constructor overload accepting int configVersion.
+   * Automatically converts the int to a string for internal use.
+   */
+  IotWebConf(
+      const char* thingName, DNSServer* dnsServer, AsyncWebServer* server,
+      const char* initialApPassword, int configVersion) :
+      IotWebConf(thingName, dnsServer, server, initialApPassword, "init")
+  {
+    snprintf(this->_configVersionBuffer, sizeof(this->_configVersionBuffer), "%d", configVersion);
+    this->_configVersion = this->_configVersionBuffer;
   }
 #endif
 
@@ -304,6 +339,25 @@ public:
   bool init();
 
   /**
+   * Register the core IotWebConf HTTP request handlers with the web server.
+   * This method sets up the essential routes:
+   * - Root page ("/") with redirect to config in AP mode
+   * - Config page ("/config") for GET and POST
+   * - Not found handler (404) with captive portal support
+   * 
+  * Must be called AFTER init() and BEFORE server.begin() for async servers.
+  * For synchronous WebServer, this method does nothing and you must
+  * register routes manually.
+  * For AsyncWebServer, you must call this explicitly before calling server.begin().
+   * 
+   * Example for AsyncWebServer:
+   *   iotWebConf.init();
+   *   iotWebConf.setupRequestHandlers();
+   *   server.begin();
+   */
+  void setupRequestHandlers();
+
+  /**
    * IotWebConf is a non-blocking, state controlled system. Therefor it should be
    * regularly triggered from the user code.
    * So call this method any time you can.
@@ -315,31 +369,37 @@ public:
    * If this method return true, the request was already served by it.
    */
   bool handleCaptivePortal(WebRequestWrapper* webRequestWrapper);
+#ifndef IOTWEBCONF_USING_ASYNC
   bool handleCaptivePortal()
   {
     StandardWebRequestWrapper webRequestWrapper = StandardWebRequestWrapper(this->_standardWebServerWrapper._server);
     return handleCaptivePortal(&webRequestWrapper);
   }
+#endif
 
   /**
    * Config URL web request handler. Call this method to handle config request.
    */
   void handleConfig(WebRequestWrapper* webRequestWrapper);
+#ifndef IOTWEBCONF_USING_ASYNC
   void handleConfig()
   {
     StandardWebRequestWrapper webRequestWrapper = StandardWebRequestWrapper(this->_standardWebServerWrapper._server);
     handleConfig(&webRequestWrapper);
   }
+#endif
 
   /**
    * URL-not-found web request handler. Used for handling captive portal request.
    */
   void handleNotFound(WebRequestWrapper* webRequestWrapper);
+#ifndef IOTWEBCONF_USING_ASYNC
   void handleNotFound()
   {
     StandardWebRequestWrapper webRequestWrapper = StandardWebRequestWrapper(this->_standardWebServerWrapper._server);
     handleNotFound(&webRequestWrapper);
   }
+#endif
 
   /**
    * Specify a callback method, that will be called upon WiFi connection success.
@@ -686,10 +746,13 @@ public:
 private:
   const char* _initialApPassword = nullptr;
   const char* _configVersion;
+  char _configVersionBuffer[16]; // Buffer for int-to-string conversion
   DNSServer* _dnsServer;
   WebServerWrapper* _webServerWrapper;
+#ifndef IOTWEBCONF_USING_ASYNC
   StandardWebServerWrapper _standardWebServerWrapper = StandardWebServerWrapper();
-#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_)
+#endif
+#if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_) || defined(IOTWEBCONF_USING_ASYNC)
   AsyncWebServerWrapper _asyncWebServerWrapper = AsyncWebServerWrapper();
 #endif
   std::function<void(const char* _updatePath)>

@@ -42,6 +42,10 @@ const char IOTWEBCONF_HTML_FORM_OPTION[] PROGMEM =
 ///////////////////////////////////////////////////////////////////////////////
 // StandardHtmlRenderer Implementation
 
+#ifdef IOTWEBCONF_USING_ASYNC
+#define CONTENT_LENGTH_UNKNOWN ((size_t) -1)
+#endif
+
 void StandardHtmlRenderer::render(IotWebConf* iotWebConf, WebRequestWrapper* webRequestWrapper, bool dataArrived)
 {
     // -- Display config portal
