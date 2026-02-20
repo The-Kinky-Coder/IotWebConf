@@ -349,6 +349,17 @@ private:
   void* findAvailableSlot(bool& outIsSingle);
 
   /**
+   * Find an existing network slot by SSID.
+   * Used for duplicate detection / upsert semantics in POST /api/networks.
+   * Searches all slots (primary + chained).
+   * 
+   * @param ssid SSID string to search for (case-sensitive)
+   * @param outIsSingle Set to true if found in primary slot (WifiParameterGroup*)
+   * @return Pointer to matching slot (cast to void*), or nullptr if not found
+   */
+  void* findNetworkBySsid(const char* ssid, bool& outIsSingle);
+
+  /**
    * Count configured networks (non-empty SSID).
    * 
    * @return Number of configured networks (0 to IOTWEBCONF_MAX_WIFI_NETWORKS)

@@ -398,22 +398,10 @@ void IotWebConfApi::setMultipleWifiAddition(MultipleWifiAddition* multiWifi)
 
 void* IotWebConfApi::findAvailableSlot(bool& outIsSingle)
 {
+  // iwcWifi0 (primary slot) is an internal IotWebConf slot — not user-managed.
+  // Only allocate from chained slots (wifi1, wifi2, ...).
   int slotCount = 0;
-  
-  // 1. Check primary WiFi slot (iwcWifi0)
-  WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
-  if (slotCount < IOTWEBCONF_MAX_WIFI_NETWORKS)
-  {
-    if (strlen(primaryWifi->_wifiSsid) == 0)
-    {
-      // Primary slot is empty - available
-      outIsSingle = true;
-      return (void*)primaryWifi;
-    }
-    slotCount++;
-  }
-  
-  // 2. Check additional network slots (wifi1, wifi2, ...)
+
   if (_multipleWifi != nullptr)
   {
     ChainedWifiParameterGroup* current = _multipleWifi->getFirstSet();
@@ -421,7 +409,6 @@ void* IotWebConfApi::findAvailableSlot(bool& outIsSingle)
     {
       if (strlen(current->wifiSsid) == 0)
       {
-        // This slot is empty - available
         outIsSingle = false;
         return (void*)current;
       }
@@ -429,24 +416,43 @@ void* IotWebConfApi::findAvailableSlot(bool& outIsSingle)
       current = (ChainedWifiParameterGroup*)current->getNext();
     }
   }
-  
-  // No available slots
+
+  outIsSingle = false;
+  return nullptr;
+}
+
+void* IotWebConfApi::findNetworkBySsid(const char* ssid, bool& outIsSingle)
+{
+  if (!ssid || strlen(ssid) == 0)
+  {
+    outIsSingle = false;
+    return nullptr;
+  }
+
+  // Only search chained slots — iwcWifi0 is internal and not user-managed.
+  if (_multipleWifi != nullptr)
+  {
+    ChainedWifiParameterGroup* current = _multipleWifi->getFirstSet();
+    while (current != nullptr)
+    {
+      if (strlen(current->wifiSsid) > 0 && strcmp(current->wifiSsid, ssid) == 0)
+      {
+        outIsSingle = false;
+        return (void*)current;
+      }
+      current = (ChainedWifiParameterGroup*)current->getNext();
+    }
+  }
+
   outIsSingle = false;
   return nullptr;
 }
 
 int IotWebConfApi::getConfiguredNetworkCount()
 {
+  // Only count chained slots — iwcWifi0 is internal and not user-managed.
   int count = 0;
-  
-  // 1. Check primary WiFi slot
-  WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
-  if (strlen(primaryWifi->_wifiSsid) > 0)
-  {
-    count++;
-  }
-  
-  // 2. Check additional network slots
+
   if (_multipleWifi != nullptr)
   {
     ChainedWifiParameterGroup* current = _multipleWifi->getFirstSet();
@@ -459,7 +465,7 @@ int IotWebConfApi::getConfiguredNetworkCount()
       current = (ChainedWifiParameterGroup*)current->getNext();
     }
   }
-  
+
   return count;
 }
 
@@ -474,28 +480,18 @@ bool IotWebConfApi::isNetworkActive(const String& id)
     return false;
   }
   
-  // Find the network and check if its SSID matches current connection
+  // Find the network and check if its SSID matches current connection.
+  // findNetworkById only returns chained slots, so isSingle is always false.
   bool isSingle = false;
   void* networkPtr = findNetworkById(id, isSingle);
-  
+
   if (networkPtr == nullptr)
   {
-    return false; // Network not found
+    return false;
   }
-  
-  const char* networkSsid = nullptr;
-  if (isSingle)
-  {
-    WifiParameterGroup* network = (WifiParameterGroup*)networkPtr;
-    networkSsid = network->_wifiSsid;
-  }
-  else
-  {
-    ChainedWifiParameterGroup* network = (ChainedWifiParameterGroup*)networkPtr;
-    networkSsid = network->wifiSsid;
-  }
-  
-  return (String(networkSsid) == currentSsid);
+
+  ChainedWifiParameterGroup* network = (ChainedWifiParameterGroup*)networkPtr;
+  return (String(network->wifiSsid) == currentSsid);
 }
 
 int IotWebConfApi::getNetworkSlot(const String& id)
@@ -554,15 +550,15 @@ String IotWebConfApi::extractNetworkId(const String& uri, const String& prefix)
 
 void* IotWebConfApi::findNetworkById(const String& id, bool& outIsSingle)
 {
-  // 1. Check single WiFi mode (always exists - "iwcWifi0")
-  WifiParameterGroup* singleWifi = _iotWebConf->getWifiParameterGroup();
-  if (id == singleWifi->getId())
+  // iwcWifi0 is an internal IotWebConf slot — reject any direct API access to it.
+  // All user-facing operations target chained slots (wifi1, wifi2, ...) only.
+  WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
+  if (id == primaryWifi->getId())
   {
-    outIsSingle = true;
-    return (void*)singleWifi;
+    outIsSingle = false;
+    return nullptr; // Blocked — not user-addressable
   }
 
-  // 2. Check multiple WiFi mode (if configured)
   if (_multipleWifi != nullptr)
   {
     ChainedWifiParameterGroup* current = _multipleWifi->getFirstSet();
@@ -578,40 +574,30 @@ void* IotWebConfApi::findNetworkById(const String& id, bool& outIsSingle)
   }
 
   outIsSingle = false;
-  return nullptr; // Not found
+  return nullptr;
 }
 
 void IotWebConfApi::handleApiGetConfiguredNetworks()
 {
-  
   JsonDocument doc;
   JsonArray networks = doc["networks"].to<JsonArray>();
 
-  // Get currently connected SSID for comparison
+  // iwcWifi0 is an internal IotWebConf slot — not returned to API consumers.
+  // Only chained slots (wifi1, wifi2, ...) are user-managed.
   String currentSsid = WiFi.SSID();
 
-  // 1. Add single WiFi network (always present - "iwcWifi0")
-  WifiParameterGroup* singleWifi = _iotWebConf->getWifiParameterGroup();
-  JsonObject net = networks.add<JsonObject>();
-  net["id"] = singleWifi->getId();
-  net["ssid"] = singleWifi->_wifiSsid;
-  net["isActive"] = (strlen(singleWifi->_wifiSsid) > 0);
-  net["hasPassword"] = (strlen(singleWifi->_wifiPassword) > 0);
-  net["isCurrent"] = (String(singleWifi->_wifiSsid) == currentSsid);
-
-  // 2. Add multiple WiFi networks (if MultipleWifiAddition is set)
   if (_multipleWifi != nullptr)
   {
     ChainedWifiParameterGroup* current = _multipleWifi->getFirstSet();
     while (current != nullptr)
     {
-      JsonObject multiNet = networks.add<JsonObject>();
-      multiNet["id"] = current->getId();
-      multiNet["ssid"] = current->wifiSsid;
-      multiNet["isActive"] = current->isActive(); // ChainedWifiParameterGroup has isActive()
-      multiNet["hasPassword"] = (strlen(current->wifiPassword) > 0);
-      multiNet["isCurrent"] = (String(current->wifiSsid) == currentSsid);
-      
+      JsonObject net = networks.add<JsonObject>();
+      net["id"] = current->getId();
+      net["ssid"] = current->wifiSsid;
+      net["isActive"] = current->isActive();
+      net["hasPassword"] = (strlen(current->wifiPassword) > 0);
+      net["isCurrent"] = (String(current->wifiSsid) == currentSsid);
+
       current = (ChainedWifiParameterGroup*)current->getNext();
     }
   }
@@ -653,22 +639,11 @@ void IotWebConfApi::handleApiConnectToNetwork()
     return;
   }
 
-  // 3. Check if network has credentials configured and extract them
-  const char* networkSsid = nullptr;
-  const char* networkPassword = nullptr;
-  
-  if (isSingle)
-  {
-    WifiParameterGroup* network = (WifiParameterGroup*)networkPtr;
-    networkSsid = network->_wifiSsid;
-    networkPassword = network->_wifiPassword;
-  }
-  else
-  {
-    ChainedWifiParameterGroup* network = (ChainedWifiParameterGroup*)networkPtr;
-    networkSsid = network->wifiSsid;
-    networkPassword = network->wifiPassword;
-  }
+  // 3. Check if network has credentials and extract them.
+  // findNetworkById only returns chained slots.
+  ChainedWifiParameterGroup* chainedNet = (ChainedWifiParameterGroup*)networkPtr;
+  const char* networkSsid     = chainedNet->wifiSsid;
+  const char* networkPassword = chainedNet->wifiPassword;
 
   if (strlen(networkSsid) == 0)
   {
@@ -765,60 +740,54 @@ void IotWebConfApi::handleApiAddNetwork()
     return;
   }
 
-  // 3. Find next available slot
+  // 3. Upsert: check if a slot with this SSID already exists
   bool isSingle = false;
-  void* slotPtr = findAvailableSlot(isSingle);
-  
-  if (slotPtr == nullptr)
+  void* slotPtr = findNetworkBySsid(ssid, isSingle);
+  bool isUpdate = (slotPtr != nullptr);
+
+  if (!isUpdate)
   {
-    JsonDocument doc;
-    doc["error"] = "Maximum networks reached (10)";
-    doc["status"] = "error";
-    sendJson(507, doc); // 507 Insufficient Storage
-    return;
+    // No existing slot — find the next empty one
+    slotPtr = findAvailableSlot(isSingle);
+    if (slotPtr == nullptr)
+    {
+      JsonDocument doc;
+      doc["error"] = "Maximum networks reached";
+      doc["status"] = "error";
+      sendJson(507, doc); // 507 Insufficient Storage
+      return;
+    }
   }
 
-  // 4. Update slot with credentials
-  String networkId;
-  
-  if (isSingle)
+  // 4. Update slot with credentials.
+  // findNetworkBySsid/findAvailableSlot only return chained slots.
+  ChainedWifiParameterGroup* chainedSlot = (ChainedWifiParameterGroup*)slotPtr;
+  strncpy(chainedSlot->wifiSsid, ssid, IOTWEBCONF_WORD_LEN);
+  chainedSlot->wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
+
+  if (password)
   {
-    WifiParameterGroup* network = (WifiParameterGroup*)slotPtr;
-    strncpy(network->_wifiSsid, ssid, IOTWEBCONF_WORD_LEN);
-    network->_wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
-    
-    if (password)
-    {
-      strncpy(network->_wifiPassword, password, IOTWEBCONF_PASSWORD_LEN);
-      network->_wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
-    }
-    else
-    {
-      network->_wifiPassword[0] = '\0';
-    }
-    
-    networkId = network->getId();
+    strncpy(chainedSlot->wifiPassword, password, IOTWEBCONF_PASSWORD_LEN);
+    chainedSlot->wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
   }
   else
   {
-    ChainedWifiParameterGroup* network = (ChainedWifiParameterGroup*)slotPtr;
-    strncpy(network->wifiSsid, ssid, IOTWEBCONF_WORD_LEN);
-    network->wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
-    
-    if (password)
-    {
-      strncpy(network->wifiPassword, password, IOTWEBCONF_PASSWORD_LEN);
-      network->wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
-    }
-    else
-    {
-      network->wifiPassword[0] = '\0';
-    }
-    
-    networkId = network->getId();
+    chainedSlot->wifiPassword[0] = '\0';
   }
 
-  // 5. Save configuration to EEPROM
+  String networkId = chainedSlot->getId();
+
+  // 5. If this SSID matches iwcWifi0 (the currently active internal slot),
+  //    keep its password in sync so the next forceWifiConnection() uses the
+  //    updated credentials (e.g. user updating password of the active network).
+  WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
+  if (String(primaryWifi->_wifiSsid) == String(ssid) && password)
+  {
+    strncpy(primaryWifi->_wifiPassword, password, IOTWEBCONF_PASSWORD_LEN);
+    primaryWifi->_wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
+  }
+
+  // 6. Save configuration to EEPROM
   _iotWebConf->saveConfig();
 
   // 6. Build and send response
@@ -828,6 +797,7 @@ void IotWebConfApi::handleApiAddNetwork()
   resDoc["id"] = networkId;
   resDoc["slot"] = slot;
   resDoc["ssid"] = ssid;
+  resDoc["updated"] = isUpdate;  // true = password updated in existing slot, false = new slot
   sendJson(200, resDoc);
 
   // 7. Allow transmission before WiFi change
@@ -877,23 +847,26 @@ void IotWebConfApi::handleApiDeleteNetwork()
   }
 
   // 4. Clear network credentials
-  if (isSingle)
+  // findNetworkById only returns chained slots, so isSingle is always false here.
+  ChainedWifiParameterGroup* network = (ChainedWifiParameterGroup*)networkPtr;
+  String deletedSsid = String(network->wifiSsid);
+  network->wifiSsid[0] = '\0';
+  network->wifiPassword[0] = '\0';
+
+  // 5. If the deleted SSID matches iwcWifi0 (the active slot), clear that too.
+  //    iwcWifi0 mirrors the last-connected network; keeping stale credentials there
+  //    would cause IotWebConf to attempt reconnection to a deleted network on reboot.
+  WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
+  if (deletedSsid.length() > 0 && deletedSsid == String(primaryWifi->_wifiSsid))
   {
-    WifiParameterGroup* network = (WifiParameterGroup*)networkPtr;
-    network->_wifiSsid[0] = '\0';
-    network->_wifiPassword[0] = '\0';
-  }
-  else
-  {
-    ChainedWifiParameterGroup* network = (ChainedWifiParameterGroup*)networkPtr;
-    network->wifiSsid[0] = '\0';
-    network->wifiPassword[0] = '\0';
+    primaryWifi->_wifiSsid[0] = '\0';
+    primaryWifi->_wifiPassword[0] = '\0';
   }
 
-  // 5. Save to EEPROM
+  // 6. Save to EEPROM
   _iotWebConf->saveConfig();
 
-  // 6. Return success
+  // 7. Return success
   JsonDocument resDoc;
   resDoc["status"] = "deleted";
   resDoc["id"] = networkId;
@@ -967,6 +940,21 @@ void IotWebConfApi::registerRoutesAsync()
     doc["state"] = _iotWebConf->getState();
     doc["thingName"] = _iotWebConf->getThingName();
     doc["ip"] = WiFi.localIP().toString();
+    doc["ip_v4"] = WiFi.localIP().toString();
+#if defined(ESP32) && defined(CONFIG_LWIP_IPV6)
+    String ipv6Global = WiFi.globalIPv6().toString();
+    String ipv6LinkLocal = WiFi.linkLocalIPv6().toString();
+    if (ipv6Global.length() > 0)
+    {
+      doc["ip_v6"] = ipv6Global;
+      doc["ip_v6_ll"] = false;
+    }
+    else if (ipv6LinkLocal.length() > 0)
+    {
+      doc["ip_v6"] = ipv6LinkLocal;
+      doc["ip_v6_ll"] = true;
+    }
+#endif
     doc["mac"] = WiFi.macAddress();
     
     doc["wifi"]["status"] = WiFi.status();
@@ -998,28 +986,20 @@ void IotWebConfApi::registerRoutesAsync()
     JsonDocument doc;
     JsonArray networks = doc["networks"].to<JsonArray>();
 
+    // iwcWifi0 is an internal IotWebConf slot — not returned to API consumers.
+    // Only chained slots (wifi1, wifi2, ...) are user-managed.
     String currentSsid = WiFi.SSID();
 
-    // Add single WiFi network
-    WifiParameterGroup* singleWifi = _iotWebConf->getWifiParameterGroup();
-    JsonObject net = networks.add<JsonObject>();
-    net["id"] = singleWifi->getId();
-    net["ssid"] = singleWifi->_wifiSsid;
-    net["isActive"] = (strlen(singleWifi->_wifiSsid) > 0);
-    net["hasPassword"] = (strlen(singleWifi->_wifiPassword) > 0);
-    net["isCurrent"] = (String(singleWifi->_wifiSsid) == currentSsid);
-
-    // Add multiple WiFi networks if configured
     if (_multipleWifi != nullptr) {
       ChainedWifiParameterGroup* current = _multipleWifi->getFirstSet();
       while (current != nullptr) {
-        JsonObject multiNet = networks.add<JsonObject>();
-        multiNet["id"] = current->getId();
-        multiNet["ssid"] = current->wifiSsid;
-        multiNet["isActive"] = current->isActive();
-        multiNet["hasPassword"] = (strlen(current->wifiPassword) > 0);
-        multiNet["isCurrent"] = (String(current->wifiSsid) == currentSsid);
-        
+        JsonObject net = networks.add<JsonObject>();
+        net["id"] = current->getId();
+        net["ssid"] = current->wifiSsid;
+        net["isActive"] = current->isActive();
+        net["hasPassword"] = (strlen(current->wifiPassword) > 0);
+        net["isCurrent"] = (String(current->wifiSsid) == currentSsid);
+
         current = (ChainedWifiParameterGroup*)current->getNext();
       }
     }
@@ -1050,9 +1030,45 @@ void IotWebConfApi::registerRoutesAsync()
     sendJsonAsync(request, 200, doc);
   });
 
+  // ═══════════════════════════════════════════════════════
+  // DEBUG TEST ENDPOINT — remove after diagnosis
+  // Tests: does a plain regex POST (no body handler) fire at all?
+  // ═══════════════════════════════════════════════════════
+  _asyncServer->on("^\\/api\\/debug\\/regex-test$", HTTP_POST, [this](AsyncWebServerRequest* request) {
+    Serial.println("[DEBUG] POST /api/debug/regex-test - onRequest FIRED (3-arg regex POST)");
+    JsonDocument doc;
+    doc["hit"] = "onRequest";
+    doc["method"] = "3-arg";
+    sendJsonAsync(request, 200, doc);
+  });
+
+  // ═══════════════════════════════════════════════════════
+  // DEBUG TEST ENDPOINT 2 — remove after diagnosis
+  // Tests: does a 5-arg regex POST fire onRequest?
+  // ═══════════════════════════════════════════════════════
+  _asyncServer->on("^\\/api\\/debug\\/regex-test-5arg$", HTTP_POST,
+    [this](AsyncWebServerRequest* request) {
+      Serial.println("[DEBUG] POST /api/debug/regex-test-5arg - onRequest FIRED (5-arg)");
+      JsonDocument doc;
+      doc["hit"] = "onRequest";
+      doc["method"] = "5-arg";
+      sendJsonAsync(request, 200, doc);
+    },
+    nullptr,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      Serial.printf("[DEBUG] POST /api/debug/regex-test-5arg - onBody FIRED len=%u index=%u total=%u\n", len, index, total);
+    }
+  );
+
   // 5. POST /api/networks - Add network (auto-slot) [PHASE 3 NEW]
-  _asyncServer->on("/api/networks", HTTP_POST, [this](AsyncWebServerRequest* request) {}, nullptr,
+  // ⚠️ IMPORTANT: Use regex URL so ESPAsyncWebServer does EXACT matching.
+  // Non-regex handlers use prefix matching: "/api/networks" would also match
+  // "/api/networks/wifi2/connect", intercepting the connect route below.
+  _asyncServer->on("^\\/api\\/networks$", HTTP_POST, [this](AsyncWebServerRequest* request) {
+    Serial.println("[DEBUG] POST /api/networks - onRequest FIRED (check: should NOT fire for /connect)");
+  }, nullptr,
     [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      Serial.printf("[DEBUG] POST /api/networks - onBody FIRED len=%u index=%u total=%u\n", len, index, total);
       if (index == 0) {
         // Parse request body
         String body = String((char*)data);
@@ -1078,47 +1094,44 @@ void IotWebConfApi::registerRoutesAsync()
           return;
         }
 
-        // Find next available slot
+        // Upsert: check if a slot with this SSID already exists
         bool isSingle = false;
-        void* slotPtr = findAvailableSlot(isSingle);
-        
-        if (slotPtr == nullptr) {
-          JsonDocument doc;
-          doc["error"] = "Maximum networks reached (10)";
-          doc["status"] = "error";
-          sendJsonAsync(request, 507, doc);
-          return;
+        void* slotPtr = findNetworkBySsid(ssid, isSingle);
+        bool isUpdate = (slotPtr != nullptr);
+
+        if (!isUpdate) {
+          // No existing slot — find the next empty one
+          slotPtr = findAvailableSlot(isSingle);
+          if (slotPtr == nullptr) {
+            JsonDocument doc;
+            doc["error"] = "Maximum networks reached";
+            doc["status"] = "error";
+            sendJsonAsync(request, 507, doc);
+            return;
+          }
         }
 
-        // Update slot with credentials
-        String networkId;
-        
-        if (isSingle) {
-          WifiParameterGroup* network = (WifiParameterGroup*)slotPtr;
-          strncpy(network->_wifiSsid, ssid, IOTWEBCONF_WORD_LEN);
-          network->_wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
-          
-          if (password) {
-            strncpy(network->_wifiPassword, password, IOTWEBCONF_PASSWORD_LEN);
-            network->_wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
-          } else {
-            network->_wifiPassword[0] = '\0';
-          }
-          
-          networkId = network->getId();
+        // Update slot with credentials.
+        // findNetworkBySsid/findAvailableSlot only return chained slots.
+        ChainedWifiParameterGroup* chainedSlot = (ChainedWifiParameterGroup*)slotPtr;
+        strncpy(chainedSlot->wifiSsid, ssid, IOTWEBCONF_WORD_LEN);
+        chainedSlot->wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
+
+        if (password) {
+          strncpy(chainedSlot->wifiPassword, password, IOTWEBCONF_PASSWORD_LEN);
+          chainedSlot->wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
         } else {
-          ChainedWifiParameterGroup* network = (ChainedWifiParameterGroup*)slotPtr;
-          strncpy(network->wifiSsid, ssid, IOTWEBCONF_WORD_LEN);
-          network->wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
-          
-          if (password) {
-            strncpy(network->wifiPassword, password, IOTWEBCONF_PASSWORD_LEN);
-            network->wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
-          } else {
-            network->wifiPassword[0] = '\0';
-          }
-          
-          networkId = network->getId();
+          chainedSlot->wifiPassword[0] = '\0';
+        }
+
+        String networkId = chainedSlot->getId();
+
+        // If this SSID matches iwcWifi0 (the currently active internal slot),
+        // keep its password in sync so forceWifiConnection() uses updated credentials.
+        WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
+        if (String(primaryWifi->_wifiSsid) == String(ssid) && password) {
+          strncpy(primaryWifi->_wifiPassword, password, IOTWEBCONF_PASSWORD_LEN);
+          primaryWifi->_wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
         }
 
         // Save configuration
@@ -1131,10 +1144,13 @@ void IotWebConfApi::registerRoutesAsync()
         resDoc["id"] = networkId;
         resDoc["slot"] = slot;
         resDoc["ssid"] = ssid;
+        resDoc["updated"] = isUpdate;  // true = password updated in existing slot
         sendJsonAsync(request, 200, resDoc);
 
-        // Allow transmission before WiFi change
-        delay(100);
+        // Allow response transmission before WiFi change
+        // 500ms gives the async TCP stack enough time to flush the response
+        // before WiFi is disconnected by forceWifiConnection()
+        delay(500);
 
         // Trigger connection test
         _iotWebConf->forceWifiConnection();
@@ -1177,15 +1193,19 @@ void IotWebConfApi::registerRoutesAsync()
       return;
     }
 
-    // Clear network credentials
-    if (isSingle) {
-      WifiParameterGroup* network = (WifiParameterGroup*)networkPtr;
-      network->_wifiSsid[0] = '\0';
-      network->_wifiPassword[0] = '\0';
-    } else {
-      ChainedWifiParameterGroup* network = (ChainedWifiParameterGroup*)networkPtr;
-      network->wifiSsid[0] = '\0';
-      network->wifiPassword[0] = '\0';
+    // Clear network credentials.
+    // findNetworkById only returns chained slots, so networkPtr is always ChainedWifiParameterGroup*.
+    ChainedWifiParameterGroup* network = (ChainedWifiParameterGroup*)networkPtr;
+    String deletedSsid = String(network->wifiSsid);
+    network->wifiSsid[0] = '\0';
+    network->wifiPassword[0] = '\0';
+
+    // If the deleted SSID matches iwcWifi0 (the active slot), clear that too.
+    WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
+    if (deletedSsid.length() > 0 && deletedSsid == String(primaryWifi->_wifiSsid))
+    {
+      primaryWifi->_wifiSsid[0] = '\0';
+      primaryWifi->_wifiPassword[0] = '\0';
     }
 
     // Save to EEPROM
@@ -1199,72 +1219,81 @@ void IotWebConfApi::registerRoutesAsync()
   });
 
   // 7. POST /api/networks/{id}/connect - Connect to saved network
-  _asyncServer->on("^\\/api\\/networks\\/([^\\/]+)\\/connect$", HTTP_POST, [this](AsyncWebServerRequest* request) {
-    // Extract network ID from URL
-    String uri = request->url();
-    String networkId = extractNetworkId(uri, "/api/networks/");
+  // ⚠️ IMPORTANT: Must use 5-arg form (with dummy body handler) for regex POST routes.
+  // ESPAsyncWebServer does not call the onRequest handler for regex POST routes
+  // that lack an onBody callback — even for bodyless requests — resulting in 501.
+  // The dummy onBody handler ensures the handler is properly selected and onRequest
+  // is always called after body processing completes (or immediately if no body).
+  _asyncServer->on("^\\/api\\/networks\\/([^\\/]+)\\/connect$", HTTP_POST,
+    [this](AsyncWebServerRequest* request) {
+      Serial.printf("[DEBUG] POST /api/networks/*/connect - onRequest FIRED url=%s\n", request->url().c_str());
+      // Extract network ID from URL
+      String uri = request->url();
+      String networkId = extractNetworkId(uri, "/api/networks/");
 
-    if (networkId.length() == 0) {
+      if (networkId.length() == 0) {
+        JsonDocument doc;
+        doc["error"] = "Network ID missing in URL";
+        sendJsonAsync(request, 400, doc);
+        return;
+      }
+
+      // Find the network
+      bool isSingle = false;
+      void* networkPtr = findNetworkById(networkId, isSingle);
+      if (networkPtr == nullptr) {
+        JsonDocument doc;
+        doc["error"] = "Network not found";
+        sendJsonAsync(request, 404, doc);
+        return;
+      }
+
+      // Check if network has credentials and extract them.
+      // findNetworkById only returns chained slots.
+      ChainedWifiParameterGroup* chainedNet = (ChainedWifiParameterGroup*)networkPtr;
+      const char* networkSsid     = chainedNet->wifiSsid;
+      const char* networkPassword = chainedNet->wifiPassword;
+
+      if (strlen(networkSsid) == 0) {
+        JsonDocument doc;
+        doc["error"] = "Network not configured (SSID empty)";
+        sendJsonAsync(request, 400, doc);
+        return;
+      }
+
+      // Copy credentials to primary WiFi parameters
+      WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
+      strncpy(primaryWifi->_wifiSsid, networkSsid, IOTWEBCONF_WORD_LEN);
+      primaryWifi->_wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
+      
+      strncpy(primaryWifi->_wifiPassword, networkPassword, IOTWEBCONF_PASSWORD_LEN);
+      primaryWifi->_wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
+
+      _iotWebConf->saveConfig();
+
+      // ⚠️ CRITICAL: Send response BEFORE triggering WiFi reconnection
       JsonDocument doc;
-      doc["error"] = "Network ID missing in URL";
-      sendJsonAsync(request, 400, doc);
-      return;
+      doc["status"] = "connecting";
+      doc["id"] = networkId;
+      doc["ssid"] = networkSsid;
+      sendJsonAsync(request, 200, doc);
+      
+      // Allow response transmission before WiFi change
+      // 500ms gives the async TCP stack enough time to flush the response
+      // before WiFi is disconnected by forceWifiConnection()
+      delay(500);
+      
+      // Now trigger connection (this changes WiFi state and may disconnect)
+      _iotWebConf->forceWifiConnection();
+    },
+    nullptr, // no upload handler
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      // Dummy body handler — required for ESPAsyncWebServer to correctly route
+      // POST requests to regex-matched handlers. Does nothing with body data.
+      Serial.printf("[DEBUG] POST /api/networks/*/connect - onBody FIRED len=%u index=%u total=%u\n", len, index, total);
+      (void)data; (void)len; (void)index; (void)total;
     }
-
-    // Find the network
-    bool isSingle = false;
-    void* networkPtr = findNetworkById(networkId, isSingle);
-    if (networkPtr == nullptr) {
-      JsonDocument doc;
-      doc["error"] = "Network not found";
-      sendJsonAsync(request, 404, doc);
-      return;
-    }
-
-    // Check if network has credentials configured and extract them
-    const char* networkSsid = nullptr;
-    const char* networkPassword = nullptr;
-    
-    if (isSingle) {
-      WifiParameterGroup* network = (WifiParameterGroup*)networkPtr;
-      networkSsid = network->_wifiSsid;
-      networkPassword = network->_wifiPassword;
-    } else {
-      ChainedWifiParameterGroup* network = (ChainedWifiParameterGroup*)networkPtr;
-      networkSsid = network->wifiSsid;
-      networkPassword = network->wifiPassword;
-    }
-
-    if (strlen(networkSsid) == 0) {
-      JsonDocument doc;
-      doc["error"] = "Network not configured (SSID empty)";
-      sendJsonAsync(request, 400, doc);
-      return;
-    }
-
-    // Copy credentials to primary WiFi parameters
-    WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
-    strncpy(primaryWifi->_wifiSsid, networkSsid, IOTWEBCONF_WORD_LEN);
-    primaryWifi->_wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
-    
-    strncpy(primaryWifi->_wifiPassword, networkPassword, IOTWEBCONF_PASSWORD_LEN);
-    primaryWifi->_wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
-
-    _iotWebConf->saveConfig();
-
-    // ⚠️ CRITICAL: Send response BEFORE triggering WiFi reconnection
-    JsonDocument doc;
-    doc["status"] = "connecting";
-    doc["id"] = networkId;
-    doc["ssid"] = networkSsid;
-    sendJsonAsync(request, 200, doc);
-    
-    // Give the HTTP response time to be transmitted before network changes
-    delay(100);
-    
-    // Now trigger connection (this changes WiFi state and may disconnect)
-    _iotWebConf->forceWifiConnection();
-  });
+  );
 
   // 8. POST /api/reconnect - Force reconnection
   _asyncServer->on("/api/reconnect", HTTP_POST, [this](AsyncWebServerRequest* request) {
