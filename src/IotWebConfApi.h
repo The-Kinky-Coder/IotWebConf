@@ -390,6 +390,35 @@ private:
    * @return true if any configured network is visible in recent scans
    */
   bool isConfiguredNetworkAvailable();
+
+  // ═══════════════════════════════════════════════════════
+  // DEFERRED CONNECT STATE MACHINE — private members
+  // ═══════════════════════════════════════════════════════
+
+  // Credentials snapshot before switching (RAM only, not persisted)
+  String _fallbackSsid;
+  String _fallbackPassword;
+
+  // Target of the current connect attempt
+  String _pendingConnectSsid;
+  String _pendingConnectId;
+
+  // Stage 1: waiting to fire forceWifiConnection() (~300ms after 202 sent)
+  bool          _pendingConnect   = false;
+  unsigned long _pendingConnectMs = 0;
+
+  // Stage 2: watching IotWebConf state for success or 30s timeout
+  bool          _monitoringConnect = false;
+  unsigned long _connectStartMs    = 0;
+
+  // Stage 3: fallback — restoring old credentials and reconnecting (20s)
+  bool          _awaitingFallback = false;
+  unsigned long _fallbackStartMs  = 0;
+
+  // Last connect result — exposed via GET /api/status
+  String        _lastConnectSsid;
+  String        _lastConnectResult;     // "ok" | "failed" | "fallback_ok" | "ap_mode"
+  unsigned long _lastConnectTimestamp = 0;
 };
 
 } // namespace iotwebconf

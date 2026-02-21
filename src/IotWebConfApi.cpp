@@ -165,6 +165,90 @@ void IotWebConfApi::loop()
       }
     }
   }
+
+  // ── Deferred connect state machine ──────────────────────────────────────────
+  // Stage 1: fire forceWifiConnection() ~300ms after 202 was sent to the client
+  if (_pendingConnect && (millis() - _pendingConnectMs) >= 300)
+  {
+    _pendingConnect    = false;
+    _monitoringConnect = true;
+    _connectStartMs    = millis();
+    _iotWebConf->forceWifiConnection();
+    IOTWEBCONF_DEBUG_LINE(F("API: Deferred connect fired"));
+  }
+
+  // Stage 2: watch for connection success or 30s timeout
+  if (_monitoringConnect)
+  {
+    bool targetReached = (_iotWebConf->getState() == iotwebconf::OnLine) &&
+                         (WiFi.SSID() == _pendingConnectSsid);
+    if (targetReached)
+    {
+      _monitoringConnect    = false;
+      _lastConnectSsid      = _pendingConnectSsid;
+      _lastConnectResult    = "ok";
+      _lastConnectTimestamp = millis();
+      _fallbackSsid         = "";
+      _fallbackPassword     = "";
+      IOTWEBCONF_DEBUG_LINE(F("API: Connect succeeded"));
+    }
+    else if ((millis() - _connectStartMs) >= 30000)
+    {
+      _monitoringConnect = false;
+      _lastConnectSsid   = _pendingConnectSsid;
+      IOTWEBCONF_DEBUG_LINE(F("API: Connect timed out — attempting fallback"));
+      if (_fallbackSsid.length() > 0)
+      {
+        // Restore old credentials and reconnect
+        WifiParameterGroup* primary = _iotWebConf->getWifiParameterGroup();
+        strncpy(primary->_wifiSsid, _fallbackSsid.c_str(), IOTWEBCONF_WORD_LEN);
+        primary->_wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
+        strncpy(primary->_wifiPassword, _fallbackPassword.c_str(), IOTWEBCONF_PASSWORD_LEN);
+        primary->_wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
+        _iotWebConf->saveConfig();
+        _iotWebConf->forceWifiConnection();
+        _awaitingFallback = true;
+        _fallbackStartMs  = millis();
+      }
+      else
+      {
+        // No fallback available — IotWebConf will enter AP mode naturally
+        _lastConnectResult    = "failed";
+        _lastConnectTimestamp = millis();
+      }
+    }
+  }
+
+  // Stage 3: watch fallback attempt (20s timeout)
+  if (_awaitingFallback)
+  {
+    bool fallbackReached = (_iotWebConf->getState() == iotwebconf::OnLine) &&
+                           (WiFi.SSID() == _fallbackSsid);
+    if (fallbackReached)
+    {
+      _awaitingFallback     = false;
+      _lastConnectResult    = "fallback_ok";
+      _lastConnectTimestamp = millis();
+      _fallbackSsid         = "";
+      _fallbackPassword     = "";
+      IOTWEBCONF_DEBUG_LINE(F("API: Fallback connect succeeded"));
+    }
+    else if ((millis() - _fallbackStartMs) >= 20000)
+    {
+      // Fallback also failed — force AP mode
+      _awaitingFallback     = false;
+      _lastConnectResult    = "ap_mode";
+      _lastConnectTimestamp = millis();
+      // Clear iwcWifi0 SSID so IotWebConf has no valid target and enters AP mode
+      WifiParameterGroup* primary = _iotWebConf->getWifiParameterGroup();
+      primary->_wifiSsid[0] = '\0';
+      _iotWebConf->saveConfig();
+      _iotWebConf->forceWifiConnection();
+      _fallbackSsid     = "";
+      _fallbackPassword = "";
+      IOTWEBCONF_DEBUG_LINE(F("API: Fallback failed — entering AP mode"));
+    }
+  }
 }
 
 void IotWebConfApi::updateNetworkCache()
@@ -257,6 +341,14 @@ void IotWebConfApi::handleApiStatus()
   doc["ap"]["active"] = (WiFi.getMode() & WIFI_AP);
   doc["ap"]["clients"] = WiFi.softAPgetStationNum();
   doc["ap"]["ip"] = WiFi.softAPIP().toString();
+
+  // Last connect result (set by deferred connect state machine in loop())
+  if (_lastConnectSsid.length() > 0)
+  {
+    doc["lastConnect"]["ssid"]      = _lastConnectSsid;
+    doc["lastConnect"]["result"]    = _lastConnectResult;
+    doc["lastConnect"]["timestamp"] = _lastConnectTimestamp;
+  }
 
   sendJson(200, doc);
 }
@@ -639,7 +731,7 @@ void IotWebConfApi::handleApiConnectToNetwork()
     return;
   }
 
-  // 3. Check if network has credentials and extract them.
+  // 3. Extract credentials.
   // findNetworkById only returns chained slots.
   ChainedWifiParameterGroup* chainedNet = (ChainedWifiParameterGroup*)networkPtr;
   const char* networkSsid     = chainedNet->wifiSsid;
@@ -653,32 +745,33 @@ void IotWebConfApi::handleApiConnectToNetwork()
     return;
   }
 
-  // 4. Copy credentials to primary WiFi parameters
-  //    (IotWebConf uses the primary WiFi slot for connections)
+  // 4. Snapshot current iwcWifi0 credentials as fallback (RAM only — not persisted)
   WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
+  _fallbackSsid     = String(primaryWifi->_wifiSsid);
+  _fallbackPassword = String(primaryWifi->_wifiPassword);
+
+  // 5. Write new credentials to iwcWifi0 and persist to EEPROM
   strncpy(primaryWifi->_wifiSsid, networkSsid, IOTWEBCONF_WORD_LEN);
   primaryWifi->_wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
-  
   strncpy(primaryWifi->_wifiPassword, networkPassword, IOTWEBCONF_PASSWORD_LEN);
   primaryWifi->_wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
-
-  // 5. Save config (so it persists across reboots)
-  // ⚠️ WARNING: This writes to EEPROM
   _iotWebConf->saveConfig();
 
-  // 6. Return success BEFORE triggering WiFi reconnection
-  // ⚠️ CRITICAL: Response must be sent before WiFi state change
-  JsonDocument doc;
-  doc["status"] = "connecting";
-  doc["id"] = networkId;
-  doc["ssid"] = networkSsid;
-  sendJson(200, doc);
-  
-  // Give the HTTP response time to be transmitted before network changes
-  delay(100);
+  // 6. Arm deferred connect — loop() fires forceWifiConnection() ~300ms later
+  //    This ensures the 202 response is transmitted before the radio drops.
+  _pendingConnectSsid = String(networkSsid);
+  _pendingConnectId   = networkId;
+  _pendingConnect     = true;
+  _pendingConnectMs   = millis();
+  _monitoringConnect  = false;   // cancel any in-progress monitoring
+  _awaitingFallback   = false;
 
-  // 7. Trigger connection attempt (this changes WiFi state and may disconnect)
-  _iotWebConf->forceWifiConnection();
+  // 7. Respond 202 Accepted immediately
+  JsonDocument doc;
+  doc["status"] = "accepted";
+  doc["id"]     = networkId;
+  doc["ssid"]   = networkSsid;
+  sendJson(202, doc);
 }
 
 void IotWebConfApi::handleApiReconnect()
@@ -793,18 +886,12 @@ void IotWebConfApi::handleApiAddNetwork()
   // 6. Build and send response
   int slot = getNetworkSlot(networkId);
   JsonDocument resDoc;
-  resDoc["status"] = "connecting";
-  resDoc["id"] = networkId;
-  resDoc["slot"] = slot;
-  resDoc["ssid"] = ssid;
+  resDoc["status"]  = "saved";
+  resDoc["id"]      = networkId;
+  resDoc["slot"]    = slot;
+  resDoc["ssid"]    = ssid;
   resDoc["updated"] = isUpdate;  // true = password updated in existing slot, false = new slot
   sendJson(200, resDoc);
-
-  // 7. Allow transmission before WiFi change
-  delay(100);
-
-  // 8. Trigger connection test
-  _iotWebConf->forceWifiConnection();
 }
 
 void IotWebConfApi::handleApiDeleteNetwork()
@@ -1065,10 +1152,9 @@ void IotWebConfApi::registerRoutesAsync()
   // Non-regex handlers use prefix matching: "/api/networks" would also match
   // "/api/networks/wifi2/connect", intercepting the connect route below.
   _asyncServer->on("^\\/api\\/networks$", HTTP_POST, [this](AsyncWebServerRequest* request) {
-    Serial.println("[DEBUG] POST /api/networks - onRequest FIRED (check: should NOT fire for /connect)");
+    // Body handled in onBody callback below
   }, nullptr,
     [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-      Serial.printf("[DEBUG] POST /api/networks - onBody FIRED len=%u index=%u total=%u\n", len, index, total);
       if (index == 0) {
         // Parse request body
         String body = String((char*)data);
@@ -1140,20 +1226,12 @@ void IotWebConfApi::registerRoutesAsync()
         // Build and send response
         int slot = getNetworkSlot(networkId);
         JsonDocument resDoc;
-        resDoc["status"] = "connecting";
-        resDoc["id"] = networkId;
-        resDoc["slot"] = slot;
-        resDoc["ssid"] = ssid;
+        resDoc["status"]  = "saved";
+        resDoc["id"]      = networkId;
+        resDoc["slot"]    = slot;
+        resDoc["ssid"]    = ssid;
         resDoc["updated"] = isUpdate;  // true = password updated in existing slot
         sendJsonAsync(request, 200, resDoc);
-
-        // Allow response transmission before WiFi change
-        // 500ms gives the async TCP stack enough time to flush the response
-        // before WiFi is disconnected by forceWifiConnection()
-        delay(500);
-
-        // Trigger connection test
-        _iotWebConf->forceWifiConnection();
       }
     });
 
@@ -1261,36 +1339,37 @@ void IotWebConfApi::registerRoutesAsync()
         return;
       }
 
-      // Copy credentials to primary WiFi parameters
+      // 4. Snapshot current iwcWifi0 credentials as fallback (RAM only — not persisted)
       WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
+      _fallbackSsid     = String(primaryWifi->_wifiSsid);
+      _fallbackPassword = String(primaryWifi->_wifiPassword);
+
+      // 5. Write new credentials to iwcWifi0 and persist to EEPROM
       strncpy(primaryWifi->_wifiSsid, networkSsid, IOTWEBCONF_WORD_LEN);
       primaryWifi->_wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
-      
       strncpy(primaryWifi->_wifiPassword, networkPassword, IOTWEBCONF_PASSWORD_LEN);
       primaryWifi->_wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
-
       _iotWebConf->saveConfig();
 
-      // ⚠️ CRITICAL: Send response BEFORE triggering WiFi reconnection
+      // 6. Arm deferred connect — loop() fires forceWifiConnection() ~300ms later
+      _pendingConnectSsid = String(networkSsid);
+      _pendingConnectId   = networkId;
+      _pendingConnect     = true;
+      _pendingConnectMs   = millis();
+      _monitoringConnect  = false;
+      _awaitingFallback   = false;
+
+      // 7. Respond 202 Accepted immediately
       JsonDocument doc;
-      doc["status"] = "connecting";
-      doc["id"] = networkId;
-      doc["ssid"] = networkSsid;
-      sendJsonAsync(request, 200, doc);
-      
-      // Allow response transmission before WiFi change
-      // 500ms gives the async TCP stack enough time to flush the response
-      // before WiFi is disconnected by forceWifiConnection()
-      delay(500);
-      
-      // Now trigger connection (this changes WiFi state and may disconnect)
-      _iotWebConf->forceWifiConnection();
+      doc["status"] = "accepted";
+      doc["id"]     = networkId;
+      doc["ssid"]   = networkSsid;
+      sendJsonAsync(request, 202, doc);
     },
     nullptr, // no upload handler
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       // Dummy body handler — required for ESPAsyncWebServer to correctly route
       // POST requests to regex-matched handlers. Does nothing with body data.
-      Serial.printf("[DEBUG] POST /api/networks/*/connect - onBody FIRED len=%u index=%u total=%u\n", len, index, total);
       (void)data; (void)len; (void)index; (void)total;
     }
   );
