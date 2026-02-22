@@ -45,6 +45,15 @@ void MultipleWifiAddition::init()
   this->_iotWebConf->setHtmlFormatProvider(
     &this->_optionalGroupHtmlFormatProvider);
 
+  // -- Reset the fallback cursor whenever a connection succeeds, so the next
+  // auto-reconnect always starts from the highest-priority slot rather than
+  // continuing mid-chain from wherever it last stopped.
+  this->_iotWebConf->setWifiConnectionCallback([&]()
+    {
+      this->_currentSet = this->_firstSet;
+      this->_isFallingBack = false;
+    });
+
   // -- Set up handler, that will selects next connection info to use.
   this->_iotWebConf->setFormValidator([&](WebRequestWrapper* webRequestWrapper)
     {
@@ -59,8 +68,13 @@ void MultipleWifiAddition::init()
         {
           if (this->_currentSet == nullptr)
           {
+            // Reset the cursor for next time. Do NOT call resetWifiAuthInfo()
+            // here — that would restore iwcWifi0 credentials into _wifiAuthInfo,
+            // causing an extra wasted attempt at the dead primary network when
+            // AP mode times out and re-enters Connecting. Instead, leave
+            // _wifiAuthInfo pointing at the last tried credentials; on the next
+            // Connecting entry the failure handler will walk from _firstSet.
             this->_currentSet = this->_firstSet;
-            this->_iotWebConf->resetWifiAuthInfo();
             result = nullptr;
             break;
           }
@@ -69,6 +83,7 @@ void MultipleWifiAddition::init()
             if (this->_currentSet->isActive())
             {
               result = &this->_currentSet->wifiAuthInfo;
+              this->_isFallingBack = true; // entering fallback cycle
               this->_currentSet =
                 (iotwebconf::ChainedWifiParameterGroup*)this->_currentSet->getNext();
               break;

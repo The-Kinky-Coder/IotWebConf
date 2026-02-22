@@ -67,10 +67,18 @@ public:
    */
   ChainedWifiParameterGroup* getFirstSet() { return _firstSet; }
 
+  /**
+   * Returns true while the fallback handler has returned a non-primary
+   * alternate network and connection has not yet succeeded.  Cleared by the
+   * WiFi connection success callback.  Useful for driving UI (e.g. LED).
+   */
+  bool isFallingBack() const { return _isFallingBack; }
+
 protected:
   IotWebConf* _iotWebConf;
   ChainedWifiParameterGroup* _firstSet;
   ChainedWifiParameterGroup* _currentSet;
+  bool _isFallingBack = false;
 
   iotwebconf::OptionalGroupHtmlFormatProvider _optionalGroupHtmlFormatProvider;
 };
