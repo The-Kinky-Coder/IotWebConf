@@ -610,6 +610,13 @@ void IotWebConf::doLoop()
   }
   else if (this->_state == Connecting)
   {
+    if (_apActiveBeforeConnect)
+    {
+      // AP is still alive in AP_STA mode — keep DNS and web handler ticking
+      // so browsers connected via the hotspot can still reach /api/status.
+      this->_dnsServer->processNextRequest();
+      this->_webServerWrapper->handleClient();
+    }
     if (checkWifiConnection())
     {
       this->changeState(OnLine);
@@ -627,6 +634,20 @@ void IotWebConf::doLoop()
     // -- In server mode we provide web interface. And check whether it is time
     // to run the client.
     this->_webServerWrapper->handleClient();
+    // -- AP grace period: keep DNS alive for AP clients and shut down AP
+    //    once the grace period elapses (giving the UI time to show success).
+    if (_apGraceShutdownTime > 0)
+    {
+      this->_dnsServer->processNextRequest();
+      if (millis() >= _apGraceShutdownTime)
+      {
+        _apGraceShutdownTime   = 0;
+        _apActiveBeforeConnect = false;
+        WiFi.softAPdisconnect(true); // kick AP clients gracefully
+        WiFi.mode(WIFI_STA);         // drop to STA-only; STA connection stays up
+        Serial.println(F("[IotWebConf] AP grace period elapsed — stopped AP, now STA only."));
+      }
+    }
     if (WiFi.status() != WL_CONNECTED)
     {
       IOTWEBCONF_DEBUG_LINE(F("Not connected. Try reconnect..."));
@@ -764,10 +785,15 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
 #endif
       break;
     case Connecting:
-      if ((oldState == ApMode) ||
-          (oldState == NotConfigured))
+      // Track whether the AP was active so we can keep it alive during connection
+      _apActiveBeforeConnect = ((oldState == ApMode) || (oldState == NotConfigured));
+      _apGraceShutdownTime   = 0; // reset any pending grace-period from a prior attempt
+      if (_apActiveBeforeConnect)
       {
-        stopAp();
+        // Coming from AP/NotConfigured: keep the soft-AP alive so the browser
+        // can continue polling /api/status while the STA connection is attempted.
+        // We set WIFI_AP_STA below instead of calling stopAp().
+        Serial.println(F("[IotWebConf] Keeping AP alive during STA connect (AP_STA mode)"));
       }
       if ((oldState == Boot) && (this->_updateServerSetupFunction != nullptr))
       {
@@ -793,11 +819,11 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
       this->_wifiRetryCount = 0;
       // The order of WiFi.mode and WiFi.setHostname matters based on the platform
 #ifdef ESP8266
-      WiFi.mode(WIFI_STA);
+      WiFi.mode(_apActiveBeforeConnect ? WIFI_AP_STA : WIFI_STA);
       WiFi.hostname(this->_thingName);
 #elif defined(ESP32)
       WiFi.setHostname(this->_thingName);
-      WiFi.mode(WIFI_STA);
+      WiFi.mode(_apActiveBeforeConnect ? WIFI_AP_STA : WIFI_STA);
 #endif
       this->_wifiConnectionHandler(
           this->_wifiAuthInfo.ssid, this->_wifiAuthInfo.password);
@@ -822,6 +848,13 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
       if (this->_wifiConnectionCallback != nullptr)
       {
         this->_wifiConnectionCallback();
+      }
+      // If we connected from AP setup mode, keep the hotspot alive for a grace
+      // period so the browser can display the success result before the AP drops.
+      if (_apActiveBeforeConnect && _apGraceShutdownTime == 0)
+      {
+        _apGraceShutdownTime = millis() + 90000UL; // 90-second grace period
+        Serial.println(F("[IotWebConf] AP grace period started — hotspot stays up for 90 s."));
       }
       break;
     default:

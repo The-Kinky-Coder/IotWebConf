@@ -809,6 +809,9 @@ private:
   unsigned long _wifiConnectionStart = 0;
   int _wifiRetryCount = 0;
   wl_status_t _lastWifiStatus = WL_IDLE_STATUS;
+  // -- AP grace period: keep AP alive after STA connects from AP setup mode
+  bool _apActiveBeforeConnect = false;    ///< AP was running when we entered Connecting state
+  unsigned long _apGraceShutdownTime = 0; ///< millis() deadline to stop AP post-connect. 0 = not active.
   // TODO: authinfo
   WifiAuthInfo _wifiAuthInfo;
   HtmlFormatProvider htmlFormatProviderInstance;
