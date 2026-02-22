@@ -824,6 +824,19 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
 #elif defined(ESP32)
       WiFi.setHostname(this->_thingName);
       WiFi.mode(_apActiveBeforeConnect ? WIFI_AP_STA : WIFI_STA);
+      // Disable the ESP32 auto-reconnect so it never races IotWebConf's state
+      // machine. Without this, the driver starts reconnecting to the last AP
+      // the instant WiFi drops — before IotWebConf's doLoop() fires —
+      // so our WiFi.begin() arrives while STA is already CONNECTING and returns
+      // ESP_ERR_WIFI_STATE, leaving the stack in a dirty state that breaks
+      // fallback attempts. IotWebConf manages all reconnection itself.
+      WiFi.setAutoReconnect(false);
+      // Re-enable IPv6 SLAAC after every WiFi.mode() call. WiFi.mode()
+      // re-creates the underlying STA netif, which clears the IPv6 state set
+      // by any previous enableIPv6() call (including the one in setup()).
+      // Without this, only the very first connection ever gets a global IPv6
+      // address; all subsequent reconnects and fallbacks stay IPv4-only.
+      WiFi.enableIPv6();
 #endif
       this->_wifiConnectionHandler(
           this->_wifiAuthInfo.ssid, this->_wifiAuthInfo.password);
