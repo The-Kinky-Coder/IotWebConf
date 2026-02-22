@@ -190,6 +190,19 @@ void IotWebConfApi::loop()
       _lastConnectTimestamp = millis();
       _fallbackSsid         = "";
       _fallbackPassword     = "";
+
+      // Mark the connected slot active now that its credentials are confirmed working.
+      // setActive(true) is intentionally NOT called in handleApiAddNetwork() — only
+      // verified connections should be eligible for the MultipleWifi fallback cycle.
+      bool isSingle = false;
+      void* slotPtr = findNetworkById(_pendingConnectId, isSingle);
+      if (slotPtr != nullptr)
+      {
+        ChainedWifiParameterGroup* slot = (ChainedWifiParameterGroup*)slotPtr;
+        slot->setActive(true);
+        _iotWebConf->saveConfig();
+      }
+
       IOTWEBCONF_DEBUG_LINE(F("API: Connect succeeded"));
     }
     else if ((millis() - _connectStartMs) >= 30000)
@@ -939,6 +952,7 @@ void IotWebConfApi::handleApiDeleteNetwork()
   String deletedSsid = String(network->wifiSsid);
   network->wifiSsid[0] = '\0';
   network->wifiPassword[0] = '\0';
+  network->setActive(false);  // hygiene: clear EEPROM active flag alongside credentials
 
   // 5. If the deleted SSID matches iwcWifi0 (the active slot), clear that too.
   //    iwcWifi0 mirrors the last-connected network; keeping stale credentials there
@@ -1277,6 +1291,7 @@ void IotWebConfApi::registerRoutesAsync()
     String deletedSsid = String(network->wifiSsid);
     network->wifiSsid[0] = '\0';
     network->wifiPassword[0] = '\0';
+    network->setActive(false);  // hygiene: clear EEPROM active flag alongside credentials
 
     // If the deleted SSID matches iwcWifi0 (the active slot), clear that too.
     WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
