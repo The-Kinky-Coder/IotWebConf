@@ -1,4 +1,6 @@
-# IotWebConf [![Build Status](https://github.com/prampec/IotWebConf/workflows/PlatformIO%20CI/badge.svg?branch=master)](https://github.com/prampec/IotWebConf/actions/workflows/test.platformio.yml)
+# Forked IotWebConf
+
+This is a custom fork of [IotWebCof](https://github.com/prampec/IotWebConf) customised to fulfill my own personal requirements. This version is not designed to be backward compatable with the "offical" IotWebConf, but I did tell the agent to try and not break things too badly, my changes should be documented in the [AgentProgress](/AgentProgress) folder, but no promises!
 
 ## Upgrading to v3.2.0
 Version 3.2.0 introduces a major refactoring to separate HTML rendering from the data model.
