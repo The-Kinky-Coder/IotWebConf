@@ -269,8 +269,7 @@ void Parameter::loadFromJson(JsonObject jsonObject)
   if (!jsonObject[this->getId()].isNull())
   {
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    Serial.print(F("Applying value from JSON for parameterId: "));
-    Serial.println(this->getId());
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "Applying value from JSON for parameterId: %s", this->getId());
 #endif
     const char* value = jsonObject[this->getId()];
     this->update(String(value));
@@ -278,8 +277,7 @@ void Parameter::loadFromJson(JsonObject jsonObject)
   else
   {
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    Serial.print(F("No value found in JSON for parameterId: "));
-    Serial.println(this->getId());
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "No value found in JSON for parameterId: %s", this->getId());
 #endif
   }
 }
@@ -309,9 +307,7 @@ void TextParameter::update(String newValue)
 {
   newValue.toCharArray(this->valueBuffer, this->getLength());
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.print(this->getId());
-  Serial.print(": ");
-  Serial.println(this->valueBuffer);
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "%s: %s", this->getId(), this->valueBuffer);
 #endif
 }
 
@@ -368,8 +364,7 @@ void PasswordParameter::update(String newValue)
 {
   Parameter* current = this;
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.print(this->getId());
-  Serial.print(": ");
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "Updating parameter: %s", this->getId());
 #endif
   if (newValue.length() > 0)
   {
@@ -377,16 +372,16 @@ void PasswordParameter::update(String newValue)
     newValue.toCharArray(current->valueBuffer, current->getLength());
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
 # ifdef IOTWEBCONF_DEBUG_PWD_TO_SERIAL
-    Serial.println(current->valueBuffer);
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "Password updated: %s", current->valueBuffer);
 # else
-    Serial.println("<updated>");
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "Password <updated>");
 # endif
 #endif
   }
   else
   {
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    Serial.println("<was not changed>");
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "Password <was not changed>");
 #endif
   }
 }

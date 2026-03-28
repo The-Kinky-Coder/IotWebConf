@@ -74,9 +74,7 @@ void StandardHtmlRenderer::render(IotWebConf* iotWebConf, WebRequestWrapper* web
     webRequestWrapper->sendContent(content);
 
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    Serial.println("Rendering parameters:");
-    iotWebConf->getSystemParameterGroup()->debugTo(&Serial);
-    iotWebConf->getCustomParameterGroup()->debugTo(&Serial);
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "Rendering parameters");
 #endif
     // -- Add parameters to the form
     this->render(iotWebConf->getSystemParameterGroup(), dataArrived, webRequestWrapper);

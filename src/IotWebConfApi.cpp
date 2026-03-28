@@ -1136,7 +1136,7 @@ void IotWebConfApi::registerRoutesAsync()
   // Tests: does a plain regex POST (no body handler) fire at all?
   // ═══════════════════════════════════════════════════════
   _asyncServer->on("^\\/api\\/debug\\/regex-test$", HTTP_POST, [this](AsyncWebServerRequest* request) {
-    Serial.println("[DEBUG] POST /api/debug/regex-test - onRequest FIRED (3-arg regex POST)");
+    ESP_LOGD(IOTWEBCONF_LOG_TAG, "[DEBUG] POST /api/debug/regex-test - onRequest FIRED (3-arg)");
     JsonDocument doc;
     doc["hit"] = "onRequest";
     doc["method"] = "3-arg";
@@ -1149,7 +1149,7 @@ void IotWebConfApi::registerRoutesAsync()
   // ═══════════════════════════════════════════════════════
   _asyncServer->on("^\\/api\\/debug\\/regex-test-5arg$", HTTP_POST,
     [this](AsyncWebServerRequest* request) {
-      Serial.println("[DEBUG] POST /api/debug/regex-test-5arg - onRequest FIRED (5-arg)");
+      ESP_LOGD(IOTWEBCONF_LOG_TAG, "[DEBUG] POST /api/debug/regex-test-5arg - onRequest FIRED (5-arg)");
       JsonDocument doc;
       doc["hit"] = "onRequest";
       doc["method"] = "5-arg";
@@ -1157,7 +1157,7 @@ void IotWebConfApi::registerRoutesAsync()
     },
     nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-      Serial.printf("[DEBUG] POST /api/debug/regex-test-5arg - onBody FIRED len=%u index=%u total=%u\n", len, index, total);
+      ESP_LOGD(IOTWEBCONF_LOG_TAG, "[DEBUG] POST /api/debug/regex-test-5arg - onBody FIRED len=%u index=%u total=%u", (unsigned)len, (unsigned)index, (unsigned)total);
     }
   );
 
@@ -1319,7 +1319,7 @@ void IotWebConfApi::registerRoutesAsync()
   // is always called after body processing completes (or immediately if no body).
   _asyncServer->on("^\\/api\\/networks\\/([^\\/]+)\\/connect$", HTTP_POST,
     [this](AsyncWebServerRequest* request) {
-      Serial.printf("[DEBUG] POST /api/networks/*/connect - onRequest FIRED url=%s\n", request->url().c_str());
+      ESP_LOGD(IOTWEBCONF_LOG_TAG, "[DEBUG] POST /api/networks/*/connect - onRequest FIRED url=%s", request->url().c_str());
       // Extract network ID from URL
       String uri = request->url();
       String networkId = extractNetworkId(uri, "/api/networks/");

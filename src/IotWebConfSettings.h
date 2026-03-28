@@ -11,6 +11,8 @@
 
 #ifndef IotWebConfSettings_h
 #define IotWebConfSettings_h
+#include <esp_log.h>
+static const char IOTWEBCONF_LOG_TAG[] = "IotWebConf";
 
 // -- We might want to place the config in the EEPROM in an offset.
 #ifndef IOTWEBCONF_CONFIG_START
@@ -85,7 +87,7 @@
 
 // -- Helper define for serial debug
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-# define IOTWEBCONF_DEBUG_LINE(MSG) Serial.println(MSG)
+# define IOTWEBCONF_DEBUG_LINE(MSG) ESP_LOGI(IOTWEBCONF_LOG_TAG, "%s", (const char*)(MSG))
 #else
 # define IOTWEBCONF_DEBUG_LINE(MSG)
 #endif

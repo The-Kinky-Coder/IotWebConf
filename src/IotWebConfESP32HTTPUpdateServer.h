@@ -92,39 +92,38 @@ class HTTPUpdateServer
 
           if(upload.status == UPLOAD_FILE_START){
               _updaterError = String();
-              if (_serial_output)
-                  Serial.setDebugOutput(true);
+              
 
               _authenticated = (_username == emptyString || _password == emptyString || _server->authenticate(_username.c_str(), _password.c_str()));
               if(!_authenticated){
                   if (_serial_output)
-                      Serial.printf("Unauthenticated Update\n");
+                      ESP_LOGW(IOTWEBCONF_LOG_TAG, "Unauthenticated Update");
                   return;
               }
 
   ///        WiFiUDP::stopAll();
               if (_serial_output)
-                  Serial.printf("Update: %s\n", upload.filename.c_str());
+                  ESP_LOGI(IOTWEBCONF_LOG_TAG, "Update: %s", upload.filename.c_str());
   ///        uint32_t maxSketchSpace = (ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000;
   ///        if(!Update.begin(maxSketchSpace)){//start with max available size
               if(!Update.begin(UPDATE_SIZE_UNKNOWN)){//start with max available size
                   _setUpdaterError();
               }
           } else if(_authenticated && upload.status == UPLOAD_FILE_WRITE && !_updaterError.length()){
-              if (_serial_output) Serial.printf(".");
+              ESP_LOGI(IOTWEBCONF_LOG_TAG, ".");  // upload progress
               if(Update.write(upload.buf, upload.currentSize) != upload.currentSize){
                   _setUpdaterError();
               }
           } else if(_authenticated && upload.status == UPLOAD_FILE_END && !_updaterError.length()){
               if(Update.end(true)){ //true to set the size to the current progress
-                  if (_serial_output) Serial.printf("Update Success: %u\nRebooting...\n", upload.totalSize);
+                  ESP_LOGI(IOTWEBCONF_LOG_TAG, "Update Success: %u bytes. Rebooting...", upload.totalSize);
               } else {
                   _setUpdaterError();
               }
-              if (_serial_output) Serial.setDebugOutput(false);
+              
           } else if(_authenticated && upload.status == UPLOAD_FILE_ABORTED){
               Update.end();
-              if (_serial_output) Serial.println("Update was aborted");
+              ESP_LOGW(IOTWEBCONF_LOG_TAG, "Update was aborted");
           }
           delay(0);
       });

@@ -174,10 +174,7 @@ int IotWebConf::initConfig()
 {
   int size = this->_allParameters.getStorageSize();
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.print("Config version: ");
-  Serial.println(this->_configVersion);
-  Serial.print("Config size: ");
-  Serial.println(size);
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "Config version: %s, Config size: %d", this->_configVersion, size);
 #endif
 
   return size;
@@ -203,7 +200,7 @@ bool IotWebConf::loadConfig()
         start += serializationData->length;
     });
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    this->_allParameters.debugTo(&Serial);
+    // debugTo(Serial) replaced by ESP_LOG — see IotWebConfSettings.h
 #endif
     result = true;
   }
@@ -212,7 +209,7 @@ bool IotWebConf::loadConfig()
     IOTWEBCONF_DEBUG_LINE(F("Wrong config version. Applying defaults."));
     this->_allParameters.applyDefaultValue();
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    this->_allParameters.debugTo(&Serial);
+    // debugTo(Serial) replaced by ESP_LOG — see IotWebConfSettings.h
 #endif
 
     result = false;
@@ -235,10 +232,7 @@ void IotWebConf::saveConfig()
   this->saveConfigVersion();
   int start = IOTWEBCONF_CONFIG_START + IOTWEBCONF_CONFIG_VERSION_LENGTH;
   IOTWEBCONF_DEBUG_LINE(F("Saving configuration"));
-#ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  this->_allParameters.debugTo(&Serial);
-  Serial.println();
-#endif
+
   this->_allParameters.storeValue([&](SerializationData* serializationData)
   {
     this->writeEepromValue(start, serializationData->data, serializationData->length);
@@ -341,11 +335,7 @@ void IotWebConf::handleConfig(WebRequestWrapper* webRequestWrapper)
   {
     // -- Save config
     IOTWEBCONF_DEBUG_LINE(F("Updating configuration"));
-#ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    this->_systemParameters.debugTo(&Serial);
-    this->_customParameterGroups.debugTo(&Serial);
-    Serial.println();
-#endif
+
     this->_systemParameters.update(webRequestWrapper);
     this->_customParameterGroups.update(webRequestWrapper);
 
@@ -425,8 +415,7 @@ bool IotWebConf::validateForm(WebRequestWrapper* webRequestWrapper)
   }
 
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.print(F("Form validation result is: "));
-  Serial.println(valid ? "positive" : "negative");
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "Form validation result is: %s", valid ? "positive" : "negative");
 #endif
 
   return valid;
@@ -440,9 +429,7 @@ void IotWebConf::handleNotFound(WebRequestWrapper* webRequestWrapper)
     return;
   }
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.print(F("Requested a non-existing page '"));
-  Serial.print(webRequestWrapper->uri());
-  Serial.println("'");
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "Requested a non-existing page: %s", webRequestWrapper->uri().c_str());
 #endif
   String message = "Requested a non-existing page\n\n";
   message += "URI: ";
@@ -476,27 +463,17 @@ bool IotWebConf::handleCaptivePortal(WebRequestWrapper* webRequestWrapper)
       localIpString = String("[") + localIpString + "]";
     }
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    Serial.print("Request for ");
-    Serial.print(host);
-    Serial.print(" redirected to ");
-    Serial.print(localIpString);
-    Serial.print(":");
-    Serial.println(webRequestWrapper->localPort());
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "Request for %s redirected to %s:%d",
+             host.c_str(), localIpString.c_str(), (int)webRequestWrapper->localPort());
 # if defined(ESP32) && defined(CONFIG_LWIP_IPV6)
     if (!localIp.isV6())
     {
       String ipv6Global = WiFi.globalIPv6().toString();
       String ipv6LinkLocal = WiFi.linkLocalIPv6().toString();
       if (ipv6Global.length() > 0)
-      {
-        Serial.print(F("IPv6: "));
-        Serial.println(ipv6Global);
-      }
+        ESP_LOGI(IOTWEBCONF_LOG_TAG, "IPv6: %s", ipv6Global.c_str());
       else if (ipv6LinkLocal.length() > 0)
-      {
-        Serial.print(F("IPv6 (LL): "));
-        Serial.println(ipv6LinkLocal);
-      }
+        ESP_LOGI(IOTWEBCONF_LOG_TAG, "IPv6 (LL): %s", ipv6LinkLocal.c_str());
     }
 # endif
 #endif
@@ -645,7 +622,7 @@ void IotWebConf::doLoop()
         _apActiveBeforeConnect = false;
         WiFi.softAPdisconnect(true); // kick AP clients gracefully
         WiFi.mode(WIFI_STA);         // drop to STA-only; STA connection stays up
-        Serial.println(F("[IotWebConf] AP grace period elapsed — stopped AP, now STA only."));
+        ESP_LOGI(IOTWEBCONF_LOG_TAG, "AP grace period elapsed — stopped AP, now STA only.");
       }
     }
     if (WiFi.status() != WL_CONNECTED)
@@ -673,11 +650,11 @@ void IotWebConf::changeState(NetworkState newState)
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
         if (this->_forceDefaultPassword)
         {
-          Serial.println("AP mode forced by reset pin");
+          ESP_LOGI(IOTWEBCONF_LOG_TAG, "AP mode forced by reset pin");
         }
         else
         {
-          Serial.println("AP password was not set in configuration");
+          ESP_LOGI(IOTWEBCONF_LOG_TAG, "AP password was not set in configuration");
         }
 #endif
         newState = NotConfigured;
@@ -688,19 +665,13 @@ void IotWebConf::changeState(NetworkState newState)
       break;
   }
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.print("State changing from: ");
-  Serial.print(this->_state);
-  Serial.print(" to ");
-  Serial.println(newState);
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "State changing from: %d to %d", (int)this->_state, (int)newState);
 #endif
   NetworkState oldState = this->_state;
   this->_state = newState;
   this->stateChanged(oldState, newState);
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.print("State changed from: ");
-  Serial.print(oldState);
-  Serial.print(" to ");
-  Serial.println(newState);
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "State changed from: %d to %d", (int)oldState, (int)newState);
 #endif
 }
 
@@ -760,27 +731,18 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
       if (mustStayInApMode())
       {
         if (this->_forceDefaultPassword)
-        {
-          Serial.println(F("Default password was forced."));
-        }
+          ESP_LOGI(IOTWEBCONF_LOG_TAG, "Default password was forced.");
         if (this->_apPassword[0] == '\0')
-        {
-          Serial.println(F("AP password was not set."));
-        }
+          ESP_LOGI(IOTWEBCONF_LOG_TAG, "AP password was not set.");
         if (this->_wifiParameters._wifiSsid[0] == '\0')
-        {
-          Serial.println(F("WiFi SSID was not set."));
-        }
+          ESP_LOGI(IOTWEBCONF_LOG_TAG, "WiFi SSID was not set.");
         if (this->_forceApMode)
-        {
-          Serial.println(F("AP was forced."));
-        }
-        Serial.println(F("Will stay in AP mode."));
+          ESP_LOGI(IOTWEBCONF_LOG_TAG, "AP was forced.");
+        ESP_LOGI(IOTWEBCONF_LOG_TAG, "Will stay in AP mode.");
       }
       else
       {
-        Serial.print(F("AP timeout (ms): "));
-        Serial.println(this->_apTimeoutMs);
+        ESP_LOGI(IOTWEBCONF_LOG_TAG, "AP timeout (ms): %lu", this->_apTimeoutMs);
       }
 #endif
       break;
@@ -793,7 +755,7 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
         // Coming from AP/NotConfigured: keep the soft-AP alive so the browser
         // can continue polling /api/status while the STA connection is attempted.
         // We set WIFI_AP_STA below instead of calling stopAp().
-        Serial.println(F("[IotWebConf] Keeping AP alive during STA connect (AP_STA mode)"));
+        ESP_LOGI(IOTWEBCONF_LOG_TAG, "Keeping AP alive during STA connect (AP_STA mode)");
       }
       if ((oldState == Boot) && (this->_updateServerSetupFunction != nullptr))
       {
@@ -803,17 +765,13 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
       endMDns(oldState);
       this->blinkInternal(1000, 500);
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-      Serial.print("Connecting to [");
-      Serial.print(this->_wifiAuthInfo.ssid);
 # ifdef IOTWEBCONF_DEBUG_PWD_TO_SERIAL
-      Serial.print("] with password [");
-      Serial.print(this->_wifiAuthInfo.password);
-      Serial.println("]");
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "Connecting to [%s] with password [%s], timeout %lu ms",
+               this->_wifiAuthInfo.ssid, this->_wifiAuthInfo.password, this->_wifiConnectionTimeoutMs);
 # else
-      Serial.println(F("] (password is hidden)"));
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "Connecting to [%s] (password hidden), timeout %lu ms",
+               this->_wifiAuthInfo.ssid, this->_wifiConnectionTimeoutMs);
 # endif
-      Serial.print(F("WiFi timeout (ms): "));
-      Serial.println(this->_wifiConnectionTimeoutMs);
 #endif
       this->_wifiConnectionStart = millis();
       this->_wifiRetryCount = 0;
@@ -847,7 +805,7 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
       MDNS.begin(this->_thingName);
       MDNS.addService("http", "tcp", IOTWEBCONF_CONFIG_USE_MDNS);
 # ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-      Serial.printf("Active mDNS services: %d \n", MDNS.queryService("http", "tcp"));
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "Active mDNS services: %d", MDNS.queryService("http", "tcp"));
 # endif
 #endif
       this->blinkInternal(8000, 160);
@@ -867,7 +825,7 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
       if (_apActiveBeforeConnect && _apGraceShutdownTime == 0)
       {
         _apGraceShutdownTime = millis() + 90000UL; // 90-second grace period
-        Serial.println(F("[IotWebConf] AP grace period started — hotspot stays up for 90 s."));
+        ESP_LOGI(IOTWEBCONF_LOG_TAG, "AP grace period started — hotspot stays up for 90 s.");
       }
       break;
     default:
@@ -956,13 +914,8 @@ bool IotWebConf::checkWifiConnection()
         this->_wifiRetryCount++;
         
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-        Serial.print(F("Transient WiFi error (status="));
-        Serial.print(currentStatus);
-        Serial.print(F(") - retrying ("));
-        Serial.print(this->_wifiRetryCount);
-        Serial.print(F("/"));
-        Serial.print(IOTWEBCONF_WIFI_RETRY_COUNT);
-        Serial.println(F(")"));
+        ESP_LOGI(IOTWEBCONF_LOG_TAG, "Transient WiFi error (status=%d) - retrying (%d/%d)",
+                 (int)currentStatus, this->_wifiRetryCount, IOTWEBCONF_WIFI_RETRY_COUNT);
 #endif
         
         // Disconnect and wait before retrying
@@ -983,9 +936,7 @@ bool IotWebConf::checkWifiConnection()
         else
         {
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-          Serial.print(F("Permanent WiFi error (status="));
-          Serial.print(currentStatus);
-          Serial.println(F(") - giving up."));
+          ESP_LOGI(IOTWEBCONF_LOG_TAG, "Permanent WiFi error (status=%d) - giving up.", (int)currentStatus);
 #endif
         }
         
@@ -1009,23 +960,16 @@ bool IotWebConf::checkWifiConnection()
 
   // -- Connected
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.println("WiFi connected");
-  Serial.print("IP address: ");
-  Serial.println(WiFi.localIP());
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "WiFi connected");
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "IP address: %s", WiFi.localIP().toString().c_str());
 # if defined(ESP32) && defined(CONFIG_LWIP_IPV6)
   {
     String ipv6Global = WiFi.globalIPv6().toString();
     String ipv6LinkLocal = WiFi.linkLocalIPv6().toString();
     if (ipv6Global.length() > 0)
-    {
-      Serial.print(F("IPv6: "));
-      Serial.println(ipv6Global);
-    }
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "IPv6: %s", ipv6Global.c_str());
     else if (ipv6LinkLocal.length() > 0)
-    {
-      Serial.print(F("IPv6 (LL): "));
-      Serial.println(ipv6LinkLocal);
-    }
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "IPv6 (LL): %s", ipv6LinkLocal.c_str());
   }
 # endif
 #endif
@@ -1038,17 +982,15 @@ void IotWebConf::setupAp()
   WiFi.mode(WIFI_AP);
 
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.print("Setting up AP: ");
-  Serial.println(this->_thingName);
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "Setting up AP: %s", this->_thingName);
 #endif
   if (this->_state == NotConfigured)
   {
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    Serial.print("With default password: ");
 # ifdef IOTWEBCONF_DEBUG_PWD_TO_SERIAL
-    Serial.println(this->_initialApPassword);
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "With default password: %s", this->_initialApPassword);
 # else
-    Serial.println(F("<hidden>"));
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "With default password: <hidden>");
 # endif
 #endif
     this->_apConnectionHandler(this->_thingName, this->_initialApPassword);
@@ -1056,33 +998,25 @@ void IotWebConf::setupAp()
   else
   {
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    Serial.print("Use password: ");
 # ifdef IOTWEBCONF_DEBUG_PWD_TO_SERIAL
-    Serial.println(this->_apPassword);
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "Use password: %s", this->_apPassword);
 # else
-    Serial.println(F("<hidden>"));
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "Use password: <hidden>");
 # endif
 #endif
     this->_apConnectionHandler(this->_thingName, this->_apPassword);
   }
 
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-  Serial.print(F("AP IP address: "));
-  Serial.println(WiFi.softAPIP());
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "AP IP address: %s", WiFi.softAPIP().toString().c_str());
 # if defined(ESP32) && defined(CONFIG_LWIP_IPV6)
   {
     String ipv6Global = WiFi.globalIPv6().toString();
     String ipv6LinkLocal = WiFi.linkLocalIPv6().toString();
     if (ipv6Global.length() > 0)
-    {
-      Serial.print(F("IPv6: "));
-      Serial.println(ipv6Global);
-    }
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "IPv6: %s", ipv6Global.c_str());
     else if (ipv6LinkLocal.length() > 0)
-    {
-      Serial.print(F("IPv6 (LL): "));
-      Serial.println(ipv6LinkLocal);
-    }
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "IPv6 (LL): %s", ipv6LinkLocal.c_str());
   }
 # endif
 #endif

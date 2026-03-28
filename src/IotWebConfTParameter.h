@@ -59,8 +59,7 @@ public:
     if (jsonObject.containsKey(this->getId()))
     {
 # ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    Serial.print(F("Applying value from JSON for parameterId: "));
-    Serial.println(this->getId());
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "Applying value from JSON for parameterId: %s", this->getId());
 # endif
       const char* value = jsonObject[this->getId()];
       this->update(String(value));
@@ -68,8 +67,7 @@ public:
     else
     {
 # ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    Serial.print(F("No value found in JSON for parameterId: "));
-    Serial.println(this->getId());
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "No value found in JSON for parameterId: %s", this->getId());
 # endif
     }
   }
@@ -170,9 +168,7 @@ protected:
     if (!validateOnly)
     {
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-      Serial.print(this->getId());
-      Serial.print(": ");
-      Serial.println(newValue);
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "%s: %s", this->getId(), newValue.c_str());
 #endif
       strncpy(this->_value, newValue.c_str(), len);
     }
@@ -229,18 +225,14 @@ protected:
       || (this->_maxDefined && (val > this->_max)))
     {
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-      Serial.print(this->getId());
-      Serial.print(" value not accepted: ");
-      Serial.println(val);
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "%s value not accepted", this->getId());
 #endif
       return false;
     }
     if (!validateOnly)
     {
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-      Serial.print(this->getId());
-      Serial.print(": ");
-      Serial.println((ValueType)val);
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "%s: (value updated)", this->getId());
 #endif
       this->_value = (ValueType) val;
     }
@@ -650,9 +642,7 @@ protected:
       }
 //      this->update(String(selected ? "1" : "0"));
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-      Serial.print(this->getId());
-      Serial.print(": ");
-      Serial.println(selected ? "selected" : "not selected");
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "%s: %s", this->getId(), selected ? "selected" : "not selected");
 #endif
       this->_value = selected;
   }
@@ -730,8 +720,7 @@ using CharArrayDataType<len>::CharArrayDataType;
     }
 
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-    Serial.print(this->getId());
-    Serial.print(": ");
+    ESP_LOGI(IOTWEBCONF_LOG_TAG, "Updating parameter: %s", this->getId());
 #endif
     if (newValue.length() > 0)
     {
@@ -739,16 +728,16 @@ using CharArrayDataType<len>::CharArrayDataType;
       strncpy(this->_value, newValue.c_str(), len);
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
 # ifdef IOTWEBCONF_DEBUG_PWD_TO_SERIAL
-      Serial.println(this->_value);
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "Value: %s", this->_value);
 # else
-      Serial.println("<updated>");
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "Value: <updated>");
 # endif
 #endif
     }
     else
     {
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-      Serial.println("<was not changed>");
+      ESP_LOGI(IOTWEBCONF_LOG_TAG, "Value: <was not changed>");
 #endif
     }
     return true;
