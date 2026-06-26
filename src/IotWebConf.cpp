@@ -13,6 +13,11 @@
 
 #include "IotWebConf.h"
 
+#ifdef ESP32
+# include <esp_netif.h>
+# include <esp_idf_version.h>
+#endif
+
 #ifdef IOTWEBCONF_CONFIG_USE_MDNS
 # ifdef ESP8266
 #  include <ESP8266mDNS.h>
@@ -114,10 +119,12 @@ void IotWebConf::setupRequestHandlers()
         return;
       }
       
-      // In AP mode, redirect to config page
-      if (this->_state == ApMode)
+      // In AP or unconfigured mode, redirect to the WiFi settings page.
+      // (handleCaptivePortal already redirects non-IP hostnames to the device
+      //  IP; this catches requests that arrive at / with the correct IP host.)
+      if (this->_state == ApMode || this->_state == NotConfigured)
       {
-        request->redirect("/config");
+        request->redirect("/wifisettings.html");
         return;
       }
       
@@ -483,7 +490,7 @@ bool IotWebConf::handleCaptivePortal(WebRequestWrapper* webRequestWrapper)
       locationHost = String("[") + locationHost + "]";
     }
     webRequestWrapper->sendHeader(
-      "Location", String("http://") + locationHost + ":" + webRequestWrapper->localPort(), true);
+      "Location", String("http://") + locationHost + ":" + webRequestWrapper->localPort() + "/wifisettings.html", true);
     webRequestWrapper->send(302, "text/plain", ""); // Empty content inhibits Content-length header so we have to close the socket ourselves.
     webRequestWrapper->stop(); // Stop is needed because we sent no content length
     return true;
@@ -775,6 +782,7 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
 #endif
       this->_wifiConnectionStart = millis();
       this->_wifiRetryCount = 0;
+      this->_wifiRetryWaitUntilMs = 0;
       // The order of WiFi.mode and WiFi.setHostname matters based on the platform
 #ifdef ESP8266
       WiFi.mode(_apActiveBeforeConnect ? WIFI_AP_STA : WIFI_STA);
@@ -910,19 +918,23 @@ bool IotWebConf::checkWifiConnection()
       
       if (shouldRetry)
       {
-        // -- Transient error, retry connection
+        if (this->_wifiRetryWaitUntilMs == 0)
+        {
+          WiFi.disconnect(true);
+          this->_wifiRetryWaitUntilMs = millis() + IOTWEBCONF_WIFI_RETRY_DELAY_MS;
+        }
+
+        if (millis() < this->_wifiRetryWaitUntilMs)
+          return false;
+
+        this->_wifiRetryWaitUntilMs = 0;
         this->_wifiRetryCount++;
-        
+
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
         ESP_LOGI(IOTWEBCONF_LOG_TAG, "Transient WiFi error (status=%d) - retrying (%d/%d)",
                  (int)currentStatus, this->_wifiRetryCount, IOTWEBCONF_WIFI_RETRY_COUNT);
 #endif
-        
-        // Disconnect and wait before retrying
-        WiFi.disconnect(true);
-        delay(IOTWEBCONF_WIFI_RETRY_DELAY_MS);
-        
-        // Reset timer and reconnect with same credentials
+
         this->_wifiConnectionStart = millis();
         WiFi.begin(this->_wifiAuthInfo.ssid, this->_wifiAuthInfo.password);
       }
@@ -1029,6 +1041,38 @@ void IotWebConf::setupAp()
      only configure IPv4 for captive portal DNS. */
   this->_dnsServer->setErrorReplyCode(DNSReplyCode::NoError);
   this->_dnsServer->start(IOTWEBCONF_DNS_PORT, "*", WiFi.softAPIP());
+
+#ifdef ESP32
+  // Enable DHCP Option 114 (captive portal URI) — supported from ESP-IDF 5.4.2.
+  // Modern OS captive portal detectors (iOS, Android, Windows, macOS) send a
+  // DHCP discover and read option 114 to locate the portal without relying on
+  // DNS poisoning alone.  We point it directly at wifisettings.html so users
+  // land on the friendly WiFi setup page rather than the raw /config form.
+# if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 4, 2)
+  {
+    esp_netif_t* ap_netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
+    if (ap_netif)
+    {
+      String captiveUri = String("http://") + WiFi.softAPIP().toString() + "/wifisettings.html";
+      esp_err_t err;
+      err = esp_netif_dhcps_stop(ap_netif);
+      if (err == ESP_OK || err == ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED)
+      {
+        err = esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET,
+                                     ESP_NETIF_CAPTIVEPORTAL_URI,
+                                     (void*)captiveUri.c_str(),
+                                     captiveUri.length());
+        if (err != ESP_OK)
+        {
+          ESP_LOGI(IOTWEBCONF_LOG_TAG, "DHCP captive portal option set failed: 0x%x", err);
+        }
+        esp_netif_dhcps_start(ap_netif);
+        ESP_LOGI(IOTWEBCONF_LOG_TAG, "DHCP captive portal URI: %s", captiveUri.c_str());
+      }
+    }
+  }
+# endif  // ESP_IDF_VERSION
+#endif  // ESP32
 }
 
 void IotWebConf::stopAp()
