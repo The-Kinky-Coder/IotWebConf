@@ -358,6 +358,7 @@ public:
 
 protected:
   // Overrides
+  using TextParameter::update;
   virtual void update(WebRequestWrapper* webRequestWrapper) override;
 
   IotWebConfItemType getType() override { return IOTWEBCONF_TYPE_CHECKBOX; }
