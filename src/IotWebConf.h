@@ -768,6 +768,10 @@ private:
   bool _skipApStartup = false;
   bool _autoConnectOnBoot = (IOTWEBCONF_DEFAULT_AUTO_CONNECT != 0);
   bool _forceApMode = false;
+#ifdef ESP32
+  // ESP-IDF's DHCP server keeps this pointer rather than copying the string.
+  char _captivePortalUri[48] = {0};
+#endif
   ParameterGroup _allParameters = ParameterGroup("iwcAll");
   ParameterGroup _systemParameters = ParameterGroup("iwcSys", "System configuration");
   ParameterGroup _customParameterGroups = ParameterGroup("iwcCustom");

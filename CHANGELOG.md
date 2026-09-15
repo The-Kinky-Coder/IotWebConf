@@ -3,6 +3,7 @@
 ## [Unreleased] - Phase 1 + Phase 2 + Phase 3
 
 ### Fixed
+- **DHCP captive portal URI heap corruption (ESP32)**: `setupAp()` passed a temporary `String`'s buffer to `esp_netif_dhcps_option(ESP_NETIF_CAPTIVEPORTAL_URI)`. ESP-IDF keeps that pointer rather than copying it, so every DHCP offer copied freed memory into a fixed-size PSRAM buffer without a bounds check, corrupting the heap and crashing in `dhcps_pbuf_alloc`. The URI now lives in a member buffer that outlives the DHCP server, and is written only while the server is stopped.
 - **Captive Portal with IPv6**: Fixed captive portal redirect failing when IPv6 is enabled. The `localAddress()` method now skips unspecified addresses (`::` or `0.0.0.0`) and falls back to valid IPv4 addresses in AP mode. This allows IPv4-only captive portal operation while maintaining full dual-stack support in station mode.
 - **AsyncWebServer route matching**: Fixed `/api/networks/configured` returning scan results instead of configured networks when using AsyncWebServer. AsyncWebServer uses prefix matching, so more specific routes (longer paths) must be registered BEFORE less specific routes. The fix reorders route registration so `/api/networks/configured` is registered before `/api/networks`.
 

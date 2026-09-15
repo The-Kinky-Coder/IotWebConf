@@ -1053,21 +1053,33 @@ void IotWebConf::setupAp()
     esp_netif_t* ap_netif = esp_netif_get_handle_from_ifkey("WIFI_AP_DEF");
     if (ap_netif)
     {
-      String captiveUri = String("http://") + WiFi.softAPIP().toString() + "/wifisettings.html";
       esp_err_t err;
       err = esp_netif_dhcps_stop(ap_netif);
       if (err == ESP_OK || err == ESP_ERR_ESP_NETIF_DHCP_ALREADY_STOPPED)
       {
-        err = esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET,
-                                     ESP_NETIF_CAPTIVEPORTAL_URI,
-                                     (void*)captiveUri.c_str(),
-                                     captiveUri.length());
-        if (err != ESP_OK)
+        int uriLen = snprintf(this->_captivePortalUri, sizeof(this->_captivePortalUri),
+                              "http://%s/wifisettings.html",
+                              WiFi.softAPIP().toString().c_str());
+        if (uriLen < 0 || (size_t)uriLen >= sizeof(this->_captivePortalUri))
         {
-          ESP_LOGI(IOTWEBCONF_LOG_TAG, "DHCP captive portal option set failed: 0x%x", err);
+          ESP_LOGW(IOTWEBCONF_LOG_TAG, "DHCP captive portal URI too long, option not set");
+        }
+        else
+        {
+          err = esp_netif_dhcps_option(ap_netif, ESP_NETIF_OP_SET,
+                                       ESP_NETIF_CAPTIVEPORTAL_URI,
+                                       (void*)this->_captivePortalUri,
+                                       (uint32_t)uriLen);
+          if (err != ESP_OK)
+          {
+            ESP_LOGI(IOTWEBCONF_LOG_TAG, "DHCP captive portal option set failed: 0x%x", err);
+          }
+          else
+          {
+            ESP_LOGI(IOTWEBCONF_LOG_TAG, "DHCP captive portal URI: %s", this->_captivePortalUri);
+          }
         }
         esp_netif_dhcps_start(ap_netif);
-        ESP_LOGI(IOTWEBCONF_LOG_TAG, "DHCP captive portal URI: %s", captiveUri.c_str());
       }
     }
   }
