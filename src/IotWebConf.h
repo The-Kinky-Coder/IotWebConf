@@ -630,8 +630,29 @@ public:
    * Further more, instant AP mode can forced even when we are currently in WiFi mode.
    *   @value - When TRUE, AP mode is forced/entered.
    *     When FALSE, AP mode is released, normal operation will continue.
+   *
+   * This mutates WiFi radio state and must only be called from the task that
+   * runs doLoop() -- never from a web-server request handler running on a
+   * different task (e.g. ESPAsyncWebServer's AsyncTCP task). Defer such calls
+   * with a flag checked from doLoop() instead.
+   *
+   * This also binds any code invoked directly from a request handler, e.g. a
+   * setConfigSavedCallback() callback: it runs on the handler's task, so it
+   * must defer any call to forceApMode()/closeAp()/forceWifiConnection() the
+   * same way, rather than calling them inline.
    */
   void forceApMode(bool value);
+
+  /**
+   * Closes the AP interface (stops the DNS server and disconnects the soft-AP),
+   * without touching an active STA connection. Use this instead of a raw
+   * WiFi.softAPdisconnect() call -- the raw call skips DNS teardown and leaves
+   * the DHCP captive-portal state inconsistent.
+   *
+   * Must only be called from the task that runs doLoop() -- see the calling-
+   * contract note on forceApMode() above.
+   */
+  void closeAp();
 
   /**
    *
@@ -752,6 +773,9 @@ public:
    * Forces the system to try to connect to the WiFi network.
    * This is useful when the WiFi credentials were changed via an external API
    * (e.g. JSON API) and we want to trigger a connection attempt immediately.
+   *
+   * This mutates WiFi radio state and must only be called from the task that
+   * runs doLoop() -- see the calling-contract note on forceApMode() above.
    */
   void forceWifiConnection();
 
@@ -827,8 +851,14 @@ private:
   unsigned long _wifiRetryWaitUntilMs = 0;
   wl_status_t _lastWifiStatus = WL_IDLE_STATUS;
   // -- AP grace period: keep AP alive after STA connects from AP setup mode
-  bool _apActiveBeforeConnect = false;    ///< AP was running when we entered Connecting state
+  bool _apActiveBeforeConnect = false;    ///< AP was running when we entered Connecting state. Only
+                                           ///< ever written by setApKeepAlive() -- see IotWebConf.cpp.
   unsigned long _apGraceShutdownTime = 0; ///< millis() deadline to stop AP post-connect. 0 = not active.
+  // One-shot veto consumed by stateChanged()'s Connecting case: set immediately before a
+  // changeState(Connecting) call that must NOT preserve/derive a keep-alive AP, even though the
+  // oldState-based computation would otherwise say to. Used by forceApMode(false) leaving
+  // ApMode/NotConfigured -- see forceApMode() in IotWebConf.cpp.
+  bool _suppressNextApKeepAlive = false;
   // TODO: authinfo
   WifiAuthInfo _wifiAuthInfo;
   HtmlFormatProvider htmlFormatProviderInstance;
@@ -850,10 +880,18 @@ private:
   {
     return this->_forceDefaultPassword || (this->_apPassword[0] == '\0');
   }
+  // _forceApMode is deliberately NOT part of this condition. A forced AP is kept alive across a
+  // Connecting excursion via the AP_STA keep-alive path (setApKeepAlive()) instead of blocking
+  // checkApTimeout()'s retry logic outright -- otherwise a forced AP would prevent the device from
+  // ever retrying a Wi-Fi reconnect during an outage. See forceApMode()/setApKeepAlive().
   bool mustStayInApMode()
   {
     return this->_forceDefaultPassword ||
-      (this->_wifiParameters._wifiSsid[0] == '\0') || this->_forceApMode;
+      (this->_wifiParameters._wifiSsid[0] == '\0');
+  }
+  const char* activeApPassword()
+  {
+    return this->mustUseDefaultPassword() ? this->_initialApPassword : this->_apPassword;
   }
   bool isIp(String str);
   String toStringIp(const IpAddress& ip);
@@ -865,6 +903,12 @@ private:
   bool checkWifiConnection();
   void setupAp();
   void stopAp();
+  // The one place allowed to stop the AP interface (DNS + softAP). Does not touch WiFi.mode() --
+  // callers decide STA-only vs radio-off afterward. See closeAp() for the public equivalent.
+  void stopApInterface();
+  // The only writer of _apActiveBeforeConnect anywhere in this file (issue #11: keeps a single
+  // field that used to be written from three independent places behind one call site).
+  void setApKeepAlive(bool keepAlive);
   void endMDns(NetworkState oldState);
 
   static bool connectAp(const char* apName, const char* password);

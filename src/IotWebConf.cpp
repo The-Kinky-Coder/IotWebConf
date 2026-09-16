@@ -16,6 +16,7 @@
 #ifdef ESP32
 # include <esp_netif.h>
 # include <esp_idf_version.h>
+# include <esp_wifi.h>
 #endif
 
 #ifdef IOTWEBCONF_CONFIG_USE_MDNS
@@ -598,7 +599,10 @@ void IotWebConf::doLoop()
     // connecting to WiFi
     checkConnection();
     checkApTimeout();
+#ifdef ESP8266
+    // DNSServer is async-UDP-based on Arduino-ESP32 3.x; processNextRequest() is a no-op there.
     this->_dnsServer->processNextRequest();
+#endif
     this->_webServerWrapper->handleClient();
   }
   else if (this->_state == Connecting)
@@ -607,7 +611,9 @@ void IotWebConf::doLoop()
     {
       // AP is still alive in AP_STA mode — keep DNS and web handler ticking
       // so browsers connected via the hotspot can still reach /api/status.
+#ifdef ESP8266
       this->_dnsServer->processNextRequest();
+#endif
       this->_webServerWrapper->handleClient();
     }
     if (checkWifiConnection())
@@ -627,16 +633,25 @@ void IotWebConf::doLoop()
     // -- In server mode we provide web interface. And check whether it is time
     // to run the client.
     this->_webServerWrapper->handleClient();
-    // -- AP grace period: keep DNS alive for AP clients and shut down AP
-    //    once the grace period elapses (giving the UI time to show success).
-    if (_apGraceShutdownTime > 0)
+    // -- Keep DNS alive for AP clients for as long as the AP is up here, independent of the
+    //    grace timer -- an AP forced up while already OnLine (forceApMode(true)) has no grace
+    //    period but still needs its captive-portal DNS serviced on ESP8266.
+    if (_apActiveBeforeConnect)
     {
+#ifdef ESP8266
       this->_dnsServer->processNextRequest();
+#endif
+    }
+    // -- AP grace period: shut down AP once the grace period elapses (giving the UI time to show
+    //    success), unless the AP is being force-kept-up, in which case the force must be cleared
+    //    (via forceApMode(false)/closeAp()) before the AP can go down.
+    if ((_apGraceShutdownTime > 0) && !this->_forceApMode)
+    {
       if (millis() >= _apGraceShutdownTime)
       {
-        _apGraceShutdownTime   = 0;
-        _apActiveBeforeConnect = false;
-        WiFi.softAPdisconnect(true); // kick AP clients gracefully
+        _apGraceShutdownTime = 0;
+        this->setApKeepAlive(false);
+        this->stopApInterface();
         WiFi.mode(WIFI_STA);         // drop to STA-only; STA connection stays up
         ESP_LOGI(IOTWEBCONF_LOG_TAG, "AP grace period elapsed — stopped AP, now STA only.");
       }
@@ -735,6 +750,10 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
         endMDns(oldState);
         WiFi.disconnect(true);
       }
+      // setupAp() no longer sets the WiFi mode itself -- set it here so a keep-alive AP (e.g. a
+      // forced AP surviving a failed connection attempt) stays in AP_STA instead of being forced
+      // back to pure AP, matching the pattern the Connecting case below already uses.
+      WiFi.mode(_apActiveBeforeConnect ? WIFI_AP_STA : WIFI_AP);
       setupAp();
       if (this->_updateServerSetupFunction != nullptr)
       {
@@ -763,15 +782,30 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
 #endif
       break;
     case Connecting:
-      // Track whether the AP was active so we can keep it alive during connection
-      _apActiveBeforeConnect = ((oldState == ApMode) || (oldState == NotConfigured));
-      _apGraceShutdownTime   = 0; // reset any pending grace-period from a prior attempt
-      if (_apActiveBeforeConnect)
+    {
+      // Was the AP already up before this transition? OR-ing in the *current* value of
+      // _apActiveBeforeConnect (not just checking oldState) covers a keep-alive set by any means --
+      // including a forced AP started while _state stayed OnLine, and a MultipleWifi slot-to-slot
+      // fallback that re-enters Connecting from Connecting -- not just the two states that bring an
+      // AP up themselves.
+      bool apWasUp = _apActiveBeforeConnect || (oldState == ApMode) || (oldState == NotConfigured);
+      // _suppressNextApKeepAlive is a one-shot veto for the one caller (forceApMode(false) leaving
+      // ApMode/NotConfigured) that must NOT preserve a keep-alive here even though apWasUp is true.
+      bool keepAlive = apWasUp && !_suppressNextApKeepAlive;
+      _suppressNextApKeepAlive = false;
+      setApKeepAlive(keepAlive);
+      _apGraceShutdownTime = 0; // reset any pending grace-period from a prior attempt
+      if (keepAlive)
       {
-        // Coming from AP/NotConfigured: keep the soft-AP alive so the browser
-        // can continue polling /api/status while the STA connection is attempted.
-        // We set WIFI_AP_STA below instead of calling stopAp().
+        // Keep the soft-AP alive so the browser can continue polling /api/status while the STA
+        // connection is attempted. We set WIFI_AP_STA below instead of tearing the AP down.
         ESP_LOGI(IOTWEBCONF_LOG_TAG, "Keeping AP alive during STA connect (AP_STA mode)");
+      }
+      else if (apWasUp)
+      {
+        // AP was up but isn't being carried into this Connecting attempt -- tear down DNS and the
+        // soft-AP now, before dropping the radio to STA-only, so DNS doesn't keep listening (#6).
+        stopApInterface();
       }
       if ((oldState == Boot) && (this->_updateServerSetupFunction != nullptr))
       {
@@ -816,6 +850,7 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
       this->_wifiConnectionHandler(
           this->_wifiAuthInfo.ssid, this->_wifiAuthInfo.password);
       break;
+    }
     case OnLine:
       // -- Initialize mdns after network connection
 #ifdef IOTWEBCONF_CONFIG_USE_MDNS
@@ -1000,32 +1035,51 @@ bool IotWebConf::checkWifiConnection()
 
 void IotWebConf::setupAp()
 {
-  WiFi.mode(WIFI_AP);
+  // Caller sets WiFi.mode() (WIFI_AP or WIFI_AP_STA) before calling this -- setupAp() no longer
+  // forces the mode itself, so a keep-alive AP started alongside an active STA connection isn't
+  // torn down the moment the AP interface is (re-)configured.
+
+  const char* activePassword = this->activeApPassword();
+  size_t activePasswordLen = strlen(activePassword);
+  if ((activePasswordLen > 0) && (activePasswordLen < 8))
+  {
+    ESP_LOGW(IOTWEBCONF_LOG_TAG,
+             "Refusing to start AP: active password is %u characters, minimum is 8.",
+             (unsigned)activePasswordLen);
+    return;
+  }
 
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
   ESP_LOGI(IOTWEBCONF_LOG_TAG, "Setting up AP: %s", this->_thingName);
-#endif
-  if (this->_state == NotConfigured)
-  {
-#ifdef IOTWEBCONF_DEBUG_TO_SERIAL
 # ifdef IOTWEBCONF_DEBUG_PWD_TO_SERIAL
-    ESP_LOGI(IOTWEBCONF_LOG_TAG, "With default password: %s", this->_initialApPassword);
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "Use password: %s", activePassword);
 # else
-    ESP_LOGI(IOTWEBCONF_LOG_TAG, "With default password: <hidden>");
+  ESP_LOGI(IOTWEBCONF_LOG_TAG, "Use password: <hidden>");
 # endif
 #endif
-    this->_apConnectionHandler(this->_thingName, this->_initialApPassword);
+
+  bool skipConnectionHandler = false;
+#ifdef ESP32
+  // Skip re-running WiFi.softAP() (via _apConnectionHandler) if the AP is already up with the
+  // same SSID/password -- softAP() defaults to channel 1, which would silently reconfigure (and
+  // briefly drop clients from) an AP_STA AP that's actually running on the STA's channel. Only
+  // the AP still needs the DNS/DHCP-option-114 refresh below, which is cheap and idempotent.
+  if ((WiFi.getMode() & WIFI_AP) != 0)
+  {
+    wifi_config_t conf = {};
+    if (esp_wifi_get_config(WIFI_IF_AP, &conf) == ESP_OK)
+    {
+      bool ssidMatches = strncmp((const char*)conf.ap.ssid, this->_thingName,
+                                  sizeof(conf.ap.ssid)) == 0;
+      bool passwordMatches = strncmp((const char*)conf.ap.password, activePassword,
+                                      sizeof(conf.ap.password)) == 0;
+      skipConnectionHandler = ssidMatches && passwordMatches;
+    }
   }
-  else
-  {
-#ifdef IOTWEBCONF_DEBUG_TO_SERIAL
-# ifdef IOTWEBCONF_DEBUG_PWD_TO_SERIAL
-    ESP_LOGI(IOTWEBCONF_LOG_TAG, "Use password: %s", this->_apPassword);
-# else
-    ESP_LOGI(IOTWEBCONF_LOG_TAG, "Use password: <hidden>");
-# endif
 #endif
-    this->_apConnectionHandler(this->_thingName, this->_apPassword);
+  if (!skipConnectionHandler)
+  {
+    this->_apConnectionHandler(this->_thingName, activePassword);
   }
 
 #ifdef IOTWEBCONF_DEBUG_TO_SERIAL
@@ -1102,6 +1156,25 @@ void IotWebConf::stopAp()
   WiFi.mode(WIFI_OFF);
 }
 
+void IotWebConf::stopApInterface()
+{
+  this->_dnsServer->stop();
+  WiFi.softAPdisconnect(true);
+}
+
+void IotWebConf::setApKeepAlive(bool keepAlive)
+{
+  this->_apActiveBeforeConnect = keepAlive;
+}
+
+void IotWebConf::closeAp()
+{
+  this->stopApInterface();
+  this->setApKeepAlive(false);
+  this->_apGraceShutdownTime = 0;
+  WiFi.mode((this->_state == OnLine || this->_state == Connecting) ? WIFI_STA : WIFI_OFF);
+}
+
 ////////////////////////////////////////////////////////////////////
 
 void IotWebConf::blink(unsigned long repeatMs, byte dutyCyclePercent)
@@ -1163,7 +1236,18 @@ void IotWebConf::forceApMode(bool doForce)
   this->_forceApMode = doForce;
   if (doForce)
   {
-    if (this->_state != ApMode)
+    if ((this->_state == Connecting) || (this->_state == OnLine))
+    {
+      // Bring the AP up alongside STA without a state change, so an online device isn't dropped
+      // offline just to show the config portal. WiFi.mode() must be set to AP_STA *before*
+      // setupAp() runs -- setupAp() no longer forces its own mode, precisely so this ordering
+      // works (see setupAp()).
+      IOTWEBCONF_DEBUG_LINE(F("Start forcing AP mode (STA stays up)"));
+      WiFi.mode(WIFI_AP_STA);
+      this->setupAp();
+      this->setApKeepAlive(true);
+    }
+    else if (this->_state != ApMode)
     {
       IOTWEBCONF_DEBUG_LINE(F("Start forcing AP mode"));
       this->changeState(ApMode);
@@ -1171,7 +1255,20 @@ void IotWebConf::forceApMode(bool doForce)
   }
   else
   {
-    if (this->_state == ApMode)
+    if ((this->_state == Connecting) || (this->_state == OnLine))
+    {
+      if (this->_apActiveBeforeConnect)
+      {
+        // The AP here is up only because of the force (see the doForce branch above) -- tear it
+        // down directly, no changeState() needed since _state never changed to bring it up.
+        IOTWEBCONF_DEBUG_LINE(F("Stopping AP mode force (STA stays up)."));
+        this->stopApInterface();
+        WiFi.mode(WIFI_STA);
+        this->setApKeepAlive(false);
+        this->_apGraceShutdownTime = 0;
+      }
+    }
+    else if ((this->_state == ApMode) || (this->_state == NotConfigured))
     {
       if (this->mustStayInApMode())
       {
@@ -1180,6 +1277,11 @@ void IotWebConf::forceApMode(bool doForce)
       else
       {
         IOTWEBCONF_DEBUG_LINE(F("Stopping AP mode force."));
+        // Leaving Ap/NotConfigured via an explicit forceApMode(false) should NOT keep the AP
+        // alive across the ensuing connection attempt (unlike checkApTimeout()'s natural,
+        // unforced timeout, which should) -- veto the keep-alive stateChanged() would otherwise
+        // derive from oldState==ApMode/NotConfigured.
+        this->_suppressNextApKeepAlive = true;
         this->changeState(Connecting);
       }
     }
