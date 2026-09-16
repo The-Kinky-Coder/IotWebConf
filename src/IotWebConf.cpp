@@ -42,6 +42,15 @@ IotWebConf::IotWebConf(
   this->_webServerWrapper = webServerWrapper;
   this->_initialApPassword = initialApPassword;
   this->_configVersion = configVersion;
+#ifdef IOTWEBCONF_DEBUG_TO_SERIAL
+  if ((initialApPassword != nullptr) &&
+      (strlen(initialApPassword) > 0) && (strlen(initialApPassword) < 8))
+  {
+    ESP_LOGW(IOTWEBCONF_LOG_TAG,
+             "initialApPassword is shorter than 8 characters -- the AP will refuse to start "
+             "with it. Use an empty string for an intentionally open default AP.");
+  }
+#endif
 
   this->_apTimeoutParameter.visible = false;
   this->_systemParameters.addItem(&this->_thingNameParameter);
@@ -406,15 +415,15 @@ bool IotWebConf::validateForm(WebRequestWrapper* webRequestWrapper)
         "Give a name with at least 3 characters.";
     valid = false;
   }
-  l = webRequestWrapper->arg(this->_apPasswordParameter.getId()).length();
-  if ((0 < l) && (l < 8))
+  String apPasswordArg = webRequestWrapper->arg(this->_apPasswordParameter.getId());
+  if (!isValidPasswordLength(apPasswordArg.c_str()))
   {
     this->_apPasswordParameter.errorMessage =
         "Password length must be at least 8 characters.";
     valid = false;
   }
-  l = webRequestWrapper->arg(this->_wifiParameters.wifiPasswordParameter.getId()).length();
-  if ((0 < l) && (l < 8))
+  String wifiPasswordArg = webRequestWrapper->arg(this->_wifiParameters.wifiPasswordParameter.getId());
+  if (!isValidPasswordLength(wifiPasswordArg.c_str()))
   {
     this->_wifiParameters.wifiPasswordParameter.errorMessage =
         "Password length must be at least 8 characters.";

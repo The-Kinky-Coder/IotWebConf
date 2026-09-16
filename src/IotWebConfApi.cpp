@@ -451,11 +451,28 @@ void IotWebConfApi::handleApiSetConfig()
   }
 
   JsonObject root = doc.as<JsonObject>();
+
+  // Validate AP/WiFi password length before writing anything (#10) -- the HTML form validator
+  // already enforces this; the JSON API bypassed it entirely.
+  {
+    const char* apPwd = root["iwcAll"]["iwcSys"]["iwcApPassword"] | (const char*)nullptr;
+    const char* wifiPwd = root["iwcAll"]["iwcSys"]["iwcWifi0"]["iwcWifiPassword"] | (const char*)nullptr;
+    if (!iotwebconf::IotWebConf::isValidPasswordLength(apPwd) ||
+        !iotwebconf::IotWebConf::isValidPasswordLength(wifiPwd))
+    {
+      JsonDocument errDoc;
+      errDoc["error"] = "AP/WiFi password must be at least 8 characters, or empty";
+      sendJson(400, errDoc);
+      return;
+    }
+  }
+
   _iotWebConf->getRootParameterGroup()->loadFromJson(root);
-  
+
   // Save to EEPROM
   _iotWebConf->saveConfig();
-  
+
+  // Runs on the request-handler task -- callback must not touch the radio directly.
   if (_configSavedCallback) {
       _configSavedCallback();
   }
@@ -1430,10 +1447,28 @@ void IotWebConfApi::registerRoutesAsync()
         }
 
         JsonObject root = doc.as<JsonObject>();
+
+        // Validate AP/WiFi password length before writing anything (#10) -- the HTML form
+        // validator already enforces this; the JSON API bypassed it entirely.
+        {
+          const char* apPwd = root["iwcAll"]["iwcSys"]["iwcApPassword"] | (const char*)nullptr;
+          const char* wifiPwd =
+              root["iwcAll"]["iwcSys"]["iwcWifi0"]["iwcWifiPassword"] | (const char*)nullptr;
+          if (!iotwebconf::IotWebConf::isValidPasswordLength(apPwd) ||
+              !iotwebconf::IotWebConf::isValidPasswordLength(wifiPwd))
+          {
+            JsonDocument errDoc;
+            errDoc["error"] = "AP/WiFi password must be at least 8 characters, or empty";
+            sendJsonAsync(request, 400, errDoc);
+            return;
+          }
+        }
+
         _iotWebConf->getRootParameterGroup()->loadFromJson(root);
-        
+
         _iotWebConf->saveConfig();
-        
+
+        // Runs on the AsyncTCP task -- callback must not touch the radio directly.
         if (_configSavedCallback) {
           _configSavedCallback();
         }

@@ -97,6 +97,8 @@ public:
 #endif
 
   // -- Should be called in setup()
+  // -- The callback runs on the request-handler task (not doLoop()'s task);
+  // -- see the calling-contract note on IotWebConf::forceApMode().
   void setConfigSavedCallback(std::function<void()> func);
   
   // -- Helper to register all API routes at once.

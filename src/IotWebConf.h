@@ -555,6 +555,18 @@ public:
   NetworkState getState() { return this->_state; };
 
   /**
+   * AP/WiFi password length rule shared between the HTML form validator and any external
+   * (e.g. JSON API) config-writing path: empty (unset) is allowed, otherwise at least 8
+   * characters, matching the minimum a real WPA2 passphrase requires.
+   */
+  static bool isValidPasswordLength(const char* password)
+  {
+    if (password == nullptr) { return true; }
+    size_t len = strlen(password);
+    return (len == 0) || (len >= 8);
+  }
+
+  /**
    * This method can be used to set the AP timeout directly without modifying the apTimeoutParameter.
    * Note, that apTimeoutMs value will be reset to the value of apTimeoutParameter on init and on config save.
    */
