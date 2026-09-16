@@ -405,6 +405,11 @@ private:
   String _pendingConnectSsid;
   String _pendingConnectId;
 
+  // Stage 0: deferred plain reconnect (armed by handleApiReconnect()), separate from
+  // _pendingConnect so it never arms _monitoringConnect/the fallback machinery below (#14).
+  bool          _pendingReconnect   = false;
+  unsigned long _pendingReconnectMs = 0;
+
   // Stage 1: waiting to fire forceWifiConnection() (~300ms after 202 sent)
   bool          _pendingConnect   = false;
   unsigned long _pendingConnectMs = 0;

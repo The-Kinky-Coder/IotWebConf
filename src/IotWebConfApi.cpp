@@ -171,6 +171,25 @@ void IotWebConfApi::loop()
     }
   }
 
+  // Stage 0: deferred plain reconnect, armed by handleApiReconnect(). Kept as separate fields
+  // from _pendingConnect (not reused) since that flag arms _monitoringConnect and the Stage 2/3
+  // fallback machinery below, which a plain reconnect must not enter (#14, #15).
+  if (_pendingReconnect)
+  {
+    if (_monitoringConnect || _awaitingFallback || _pendingConnect)
+    {
+      // A connect-to-network sequence is already in flight -- re-arm instead of firing
+      // concurrently with it.
+      _pendingReconnectMs = millis();
+    }
+    else if ((millis() - _pendingReconnectMs) >= 300)
+    {
+      _pendingReconnect = false;
+      _iotWebConf->forceWifiConnection();
+      IOTWEBCONF_DEBUG_LINE(F("API: Deferred reconnect fired"));
+    }
+  }
+
   // ── Deferred connect state machine ──────────────────────────────────────────
   // Stage 1: fire forceWifiConnection() ~300ms after 202 was sent to the client
   if (_pendingConnect && (millis() - _pendingConnectMs) >= 300)
@@ -818,17 +837,16 @@ void IotWebConfApi::handleApiReconnect()
 {
   // Force WiFi reconnection with current settings
   // This does NOT modify config or write to EEPROM
-  
-  // ⚠️ CRITICAL: Send response BEFORE triggering WiFi reconnection
+
   JsonDocument doc;
   doc["status"] = "reconnecting";
   sendJson(200, doc);
-  
-  // Give the HTTP response time to be transmitted before network changes
-  delay(100);
-  
-  // Now trigger reconnection (this changes WiFi state and may disconnect)
-  _iotWebConf->forceWifiConnection();
+
+  // Defer the actual reconnect to loop() (Stage 0) instead of blocking this request-handler
+  // thread with delay(100) and calling forceWifiConnection() synchronously here (#14) -- the
+  // radio must only be driven from the task that runs doLoop().
+  _pendingReconnect   = true;
+  _pendingReconnectMs = millis();
 }
 
 // ═══════════════════════════════════════════════════════
@@ -1418,16 +1436,15 @@ void IotWebConfApi::registerRoutesAsync()
 
   // 8. POST /api/reconnect - Force reconnection
   _asyncServer->on("/api/reconnect", HTTP_POST, [this](AsyncWebServerRequest* request) {
-    // ⚠️ CRITICAL: Send response BEFORE triggering WiFi reconnection
     JsonDocument doc;
     doc["status"] = "reconnecting";
     sendJsonAsync(request, 200, doc);
-    
-    // Give the HTTP response time to be transmitted before network changes
-    delay(100);
-    
-    // Now trigger reconnection (this changes WiFi state and may disconnect)
-    _iotWebConf->forceWifiConnection();
+
+    // Defer the actual reconnect to loop() (Stage 0) instead of blocking the AsyncTCP task with
+    // delay(100) and calling forceWifiConnection() synchronously here (#14) -- the radio must
+    // only be driven from the task that runs doLoop().
+    _pendingReconnect   = true;
+    _pendingReconnectMs = millis();
   });
 
   // 9. GET /api/config - Get configuration
