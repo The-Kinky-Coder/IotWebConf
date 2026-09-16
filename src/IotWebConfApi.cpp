@@ -123,13 +123,17 @@ void IotWebConfApi::loop()
   if (_autoScanEnabled && !_scanRequested)
   {
     unsigned long now = millis();
-    
-    // Guard: Don't auto-scan during initial connection attempts
-    // Allow scanning when: connected, in AP mode (so users see network list), or after 30s
-    bool canAutoScan = (_iotWebConf->getState() == iotwebconf::OnLine) || 
-                       (_iotWebConf->getState() == iotwebconf::ApMode) ||
-                       (now > 30000);
-    
+
+    // Guard: never scan while a connection attempt is in progress (a scan takes the radio off
+    // the AP's channel too, which can stall/drop a joined AP client), and never scan while an AP
+    // client is actually joined, regardless of how long the device has been up.
+    iotwebconf::NetworkState state = _iotWebConf->getState();
+    bool noApClients = WiFi.softAPgetStationNum() == 0;
+    bool canAutoScan = ((state == iotwebconf::OnLine) ||
+                        (state == iotwebconf::ApMode) ||
+                        (state == iotwebconf::NotConfigured)) &&
+                       noApClients;
+
     // Check if enough time has passed since last automatic scan
     if (canAutoScan && (now - _lastAutoScanTime) >= IOTWEBCONF_AUTO_SCAN_INTERVAL_MS)
     {
@@ -145,8 +149,9 @@ void IotWebConfApi::loop()
   
   // -- Automatic reconnection from AP mode when network becomes available
   // Handles power-cut scenarios where router boots slower than device
-  if (_apAutoReconnectEnabled && 
-      (_iotWebConf->getState() == iotwebconf::ApMode))
+  if (_apAutoReconnectEnabled &&
+      ((_iotWebConf->getState() == iotwebconf::ApMode) ||
+       (_iotWebConf->getState() == iotwebconf::NotConfigured)))
   {
     unsigned long now = millis();
     
