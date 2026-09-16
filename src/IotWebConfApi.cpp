@@ -233,6 +233,11 @@ void IotWebConfApi::loop()
         // No fallback available — IotWebConf will enter AP mode naturally
         _lastConnectResult    = "failed";
         _lastConnectTimestamp = millis();
+        // Clear any stale fallback credentials from a previous attempt so a later Stage 2
+        // timeout's restore branch above can't pick them up and write them into the primary
+        // slot (#15).
+        _fallbackSsid         = "";
+        _fallbackPassword     = "";
       }
     }
   }
@@ -253,14 +258,14 @@ void IotWebConfApi::loop()
     }
     else if ((millis() - _fallbackStartMs) >= 20000)
     {
-      // Fallback also failed — force AP mode
+      // Fallback also failed
       _awaitingFallback     = false;
       _lastConnectResult    = "ap_mode";
       _lastConnectTimestamp = millis();
-      // Clear iwcWifi0 SSID so IotWebConf has no valid target and enters AP mode
-      WifiParameterGroup* primary = _iotWebConf->getWifiParameterGroup();
-      primary->_wifiSsid[0] = '\0';
-      _iotWebConf->saveConfig();
+      // Don't erase the saved primary SSID/password here (#15) -- a flaky router during this one
+      // attempt shouldn't permanently delete a working saved network. IotWebConf's own
+      // checkWifiConnection()/checkApTimeout() fallback already drops to AP mode on its own once
+      // retries are exhausted, without deleting anything.
       _iotWebConf->forceWifiConnection();
       _fallbackSsid     = "";
       _fallbackPassword = "";
