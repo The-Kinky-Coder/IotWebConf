@@ -100,7 +100,14 @@ public:
   // -- The callback runs on the request-handler task (not doLoop()'s task);
   // -- see the calling-contract note on IotWebConf::forceApMode().
   void setConfigSavedCallback(std::function<void()> func);
-  
+
+#ifdef IOTWEBCONF_API_HAS_ASYNC_SUPPORT
+  // -- Every async route and body handler asks this first. Return true to let the request through;
+  // -- to refuse, send the response yourself and return false. Without one, requests are not checked.
+  using RequestAuthorizer = std::function<bool(AsyncWebServerRequest*)>;
+  void setRequestAuthorizer(RequestAuthorizer authorizer) { _authorizer = authorizer; }
+#endif
+
   // -- Helper to register all API routes at once.
   // -- Example: api.registerRoutes();
   // -- If constructed with AsyncWebServer, this auto-dispatches to registerRoutesAsync().
@@ -245,6 +252,8 @@ private:
 #ifdef IOTWEBCONF_API_HAS_ASYNC_SUPPORT
   AsyncWebServer* _asyncServer = nullptr;
   bool _isAsync = false;
+  RequestAuthorizer _authorizer = nullptr;
+  bool authorize(AsyncWebServerRequest* request) const { return !_authorizer || _authorizer(request); }
 #endif
 
   // -- Async scan handling

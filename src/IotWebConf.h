@@ -284,6 +284,16 @@ public:
     snprintf(this->_configVersionBuffer, sizeof(this->_configVersionBuffer), "%d", configVersion);
     this->_configVersion = this->_configVersionBuffer;
   }
+
+  /**
+   * Every AsyncWebServer route this class registers ("/", "/config") asks this first.
+   * Return true to let the request through; to refuse, send the response yourself and return false.
+   * Without one, requests are not checked. The 404 / captive-portal handler is not checked.
+   */
+  void setRequestAuthorizer(std::function<bool(AsyncWebServerRequest*)> authorizer)
+  {
+    this->_requestAuthorizer = authorizer;
+  }
 #endif
 
   IotWebConf(
@@ -790,6 +800,7 @@ private:
 #endif
 #if defined(ESP_ASYNC_WEB_SERVER_H_) || defined(_ESPAsyncWebServer_H_) || defined(IOTWEBCONF_USING_ASYNC)
   AsyncWebServerWrapper _asyncWebServerWrapper = AsyncWebServerWrapper();
+  std::function<bool(AsyncWebServerRequest*)> _requestAuthorizer = nullptr;
 #endif
   std::function<void(const char* _updatePath)>
     _updateServerSetupFunction = nullptr;

@@ -1081,6 +1081,7 @@ void IotWebConfApi::registerRoutesAsync()
   
   // 1. GET /api/status - Device status
   _asyncServer->on("/api/status", HTTP_GET, [this](AsyncWebServerRequest* request) {
+    if (!authorize(request)) return;
     JsonDocument doc;
     
     doc["state"] = _iotWebConf->getState();
@@ -1116,6 +1117,7 @@ void IotWebConfApi::registerRoutesAsync()
 
   // 2. POST /api/scan - Start WiFi scan
   _asyncServer->on("/api/scan", HTTP_POST, [this](AsyncWebServerRequest* request) {
+    if (!authorize(request)) return;
     WiFi.scanNetworks(true);
     _scanRequested = true;
     _lastScanTime = millis();
@@ -1128,7 +1130,7 @@ void IotWebConfApi::registerRoutesAsync()
 
   // 3. GET /api/networks/configured - List saved networks (MUST be before /api/networks)
   _asyncServer->on("/api/networks/configured", HTTP_GET, [this](AsyncWebServerRequest* request) {
-    
+    if (!authorize(request)) return;
     JsonDocument doc;
     JsonArray networks = doc["networks"].to<JsonArray>();
 
@@ -1155,6 +1157,7 @@ void IotWebConfApi::registerRoutesAsync()
 
   // 4. GET /api/networks - Scan results (more general route, registered after specific)
   _asyncServer->on("/api/networks", HTTP_GET, [this](AsyncWebServerRequest* request) {
+    if (!authorize(request)) return;
     // Always return cached results (never empty!)
     JsonDocument doc;
     JsonArray networks = doc["networks"].to<JsonArray>();
@@ -1176,36 +1179,6 @@ void IotWebConfApi::registerRoutesAsync()
     sendJsonAsync(request, 200, doc);
   });
 
-  // ═══════════════════════════════════════════════════════
-  // DEBUG TEST ENDPOINT — remove after diagnosis
-  // Tests: does a plain regex POST (no body handler) fire at all?
-  // ═══════════════════════════════════════════════════════
-  _asyncServer->on("^\\/api\\/debug\\/regex-test$", HTTP_POST, [this](AsyncWebServerRequest* request) {
-    ESP_LOGD(IOTWEBCONF_LOG_TAG, "[DEBUG] POST /api/debug/regex-test - onRequest FIRED (3-arg)");
-    JsonDocument doc;
-    doc["hit"] = "onRequest";
-    doc["method"] = "3-arg";
-    sendJsonAsync(request, 200, doc);
-  });
-
-  // ═══════════════════════════════════════════════════════
-  // DEBUG TEST ENDPOINT 2 — remove after diagnosis
-  // Tests: does a 5-arg regex POST fire onRequest?
-  // ═══════════════════════════════════════════════════════
-  _asyncServer->on("^\\/api\\/debug\\/regex-test-5arg$", HTTP_POST,
-    [this](AsyncWebServerRequest* request) {
-      ESP_LOGD(IOTWEBCONF_LOG_TAG, "[DEBUG] POST /api/debug/regex-test-5arg - onRequest FIRED (5-arg)");
-      JsonDocument doc;
-      doc["hit"] = "onRequest";
-      doc["method"] = "5-arg";
-      sendJsonAsync(request, 200, doc);
-    },
-    nullptr,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-      ESP_LOGD(IOTWEBCONF_LOG_TAG, "[DEBUG] POST /api/debug/regex-test-5arg - onBody FIRED len=%u index=%u total=%u", (unsigned)len, (unsigned)index, (unsigned)total);
-    }
-  );
-
   // 5. POST /api/networks - Add network (auto-slot) [PHASE 3 NEW]
   // ⚠️ IMPORTANT: Use regex URL so ESPAsyncWebServer does EXACT matching.
   // Non-regex handlers use prefix matching: "/api/networks" would also match
@@ -1214,9 +1187,11 @@ void IotWebConfApi::registerRoutesAsync()
     // Body handled in onBody callback below
   }, nullptr,
     [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      // The body arrives before any middleware could refuse it, so the check lives here.
+      if (!authorize(request)) return;
       if (index == 0) {
         // Parse request body
-        String body = String((char*)data);
+        String body((const char*)data, len);
         JsonDocument reqDoc;
         DeserializationError error = deserializeJson(reqDoc, body);
 
@@ -1296,6 +1271,7 @@ void IotWebConfApi::registerRoutesAsync()
 
   // 6. DELETE /api/networks/{id} - Remove network [PHASE 3 NEW]
   _asyncServer->on("^\\/api\\/networks\\/([^\\/]+)$", HTTP_DELETE, [this](AsyncWebServerRequest* request) {
+    if (!authorize(request)) return;
     // Extract network ID from URL
     String uri = request->url();
     String networkId = extractNetworkId(uri, "/api/networks/");
@@ -1364,7 +1340,7 @@ void IotWebConfApi::registerRoutesAsync()
   // is always called after body processing completes (or immediately if no body).
   _asyncServer->on("^\\/api\\/networks\\/([^\\/]+)\\/connect$", HTTP_POST,
     [this](AsyncWebServerRequest* request) {
-      ESP_LOGD(IOTWEBCONF_LOG_TAG, "[DEBUG] POST /api/networks/*/connect - onRequest FIRED url=%s", request->url().c_str());
+      if (!authorize(request)) return;
       // Extract network ID from URL
       String uri = request->url();
       String networkId = extractNetworkId(uri, "/api/networks/");
@@ -1436,6 +1412,7 @@ void IotWebConfApi::registerRoutesAsync()
 
   // 8. POST /api/reconnect - Force reconnection
   _asyncServer->on("/api/reconnect", HTTP_POST, [this](AsyncWebServerRequest* request) {
+    if (!authorize(request)) return;
     JsonDocument doc;
     doc["status"] = "reconnecting";
     sendJsonAsync(request, 200, doc);
@@ -1449,6 +1426,7 @@ void IotWebConfApi::registerRoutesAsync()
 
   // 9. GET /api/config - Get configuration
   _asyncServer->on("/api/config", HTTP_GET, [this](AsyncWebServerRequest* request) {
+    if (!authorize(request)) return;
     JsonDocument doc;
     JsonObject root = doc.to<JsonObject>();
     
@@ -1461,8 +1439,10 @@ void IotWebConfApi::registerRoutesAsync()
   // 10. POST /api/config - Update configuration
   _asyncServer->on("/api/config", HTTP_POST, [this](AsyncWebServerRequest* request) {}, nullptr,
     [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      // The body arrives before any middleware could refuse it, so the check lives here.
+      if (!authorize(request)) return;
       if (index == 0) {
-        String body = String((char*)data);
+        String body((const char*)data, len);
         JsonDocument doc;
         DeserializationError error = deserializeJson(doc, body);
 

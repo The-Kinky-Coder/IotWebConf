@@ -120,8 +120,9 @@ void IotWebConf::setupRequestHandlers()
     
     // Root page handler
     asyncServer->on("/", HTTP_GET, [this](AsyncWebServerRequest* request) {
+      if (this->_requestAuthorizer && !this->_requestAuthorizer(request)) return;
       AsyncWebRequestWrapper wrapper(request);
-      
+
       // Check captive portal first
       if (this->handleCaptivePortal(&wrapper))
       {
@@ -144,11 +145,13 @@ void IotWebConf::setupRequestHandlers()
     
     // Config page handlers (GET and POST)
     asyncServer->on("/config", HTTP_GET, [this](AsyncWebServerRequest* request) {
+      if (this->_requestAuthorizer && !this->_requestAuthorizer(request)) return;
       AsyncWebRequestWrapper wrapper(request);
       this->handleConfig(&wrapper);
     });
-    
+
     asyncServer->on("/config", HTTP_POST, [this](AsyncWebServerRequest* request) {
+      if (this->_requestAuthorizer && !this->_requestAuthorizer(request)) return;
       AsyncWebRequestWrapper wrapper(request);
       this->handleConfig(&wrapper);
     });
