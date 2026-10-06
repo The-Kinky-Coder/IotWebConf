@@ -106,6 +106,12 @@ public:
   // -- to refuse, send the response yourself and return false. Without one, requests are not checked.
   using RequestAuthorizer = std::function<bool(AsyncWebServerRequest*)>;
   void setRequestAuthorizer(RequestAuthorizer authorizer) { _authorizer = authorizer; }
+
+  // -- The JSON bodies of POST /api/networks and POST /api/config. registerRoutes() parses only the first
+  // -- chunk of a body; an application that buffers whole bodies itself can register those two routes
+  // -- first (the first matching handler wins) and hand the complete body to these. They do not authorize.
+  void handleAddNetworkJson(AsyncWebServerRequest* request, const uint8_t* data, size_t len);
+  void handleSetConfigJson(AsyncWebServerRequest* request, const uint8_t* data, size_t len);
 #endif
 
   // -- Helper to register all API routes at once.

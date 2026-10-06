@@ -1073,6 +1073,128 @@ bool IotWebConfApi::isConfiguredNetworkAvailable()
 // ASYNCWEBSERVER ROUTE REGISTRATION
 // ═══════════════════════════════════════════════════════
 
+void IotWebConfApi::handleAddNetworkJson(AsyncWebServerRequest* request, const uint8_t* data, size_t len)
+{
+  JsonDocument reqDoc;
+  DeserializationError error = deserializeJson(reqDoc, data, len);
+
+  if (error) {
+    JsonDocument doc;
+    doc["error"] = "Invalid JSON";
+    doc["status"] = "error";
+    sendJsonAsync(request, 400, doc);
+    return;
+  }
+
+  const char* ssid = reqDoc["ssid"];
+  const char* password = reqDoc["password"];
+
+  if (!ssid || strlen(ssid) == 0) {
+    JsonDocument doc;
+    doc["error"] = "SSID field required";
+    doc["status"] = "error";
+    sendJsonAsync(request, 400, doc);
+    return;
+  }
+
+  // Upsert: check if a slot with this SSID already exists
+  bool isSingle = false;
+  void* slotPtr = findNetworkBySsid(ssid, isSingle);
+  bool isUpdate = (slotPtr != nullptr);
+
+  if (!isUpdate) {
+    // No existing slot — find the next empty one
+    slotPtr = findAvailableSlot(isSingle);
+    if (slotPtr == nullptr) {
+      JsonDocument doc;
+      doc["error"] = "Maximum networks reached";
+      doc["status"] = "error";
+      sendJsonAsync(request, 507, doc);
+      return;
+    }
+  }
+
+  // Update slot with credentials.
+  // findNetworkBySsid/findAvailableSlot only return chained slots.
+  ChainedWifiParameterGroup* chainedSlot = (ChainedWifiParameterGroup*)slotPtr;
+  strncpy(chainedSlot->wifiSsid, ssid, IOTWEBCONF_WORD_LEN);
+  chainedSlot->wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
+
+  if (password) {
+    strncpy(chainedSlot->wifiPassword, password, IOTWEBCONF_PASSWORD_LEN);
+    chainedSlot->wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
+  } else {
+    chainedSlot->wifiPassword[0] = '\0';
+  }
+
+  String networkId = chainedSlot->getId();
+
+  // If this SSID matches iwcWifi0 (the currently active internal slot),
+  // keep its password in sync so forceWifiConnection() uses updated credentials.
+  WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
+  if (String(primaryWifi->_wifiSsid) == String(ssid) && password) {
+    strncpy(primaryWifi->_wifiPassword, password, IOTWEBCONF_PASSWORD_LEN);
+    primaryWifi->_wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
+  }
+
+  // Save configuration
+  _iotWebConf->saveConfig();
+
+  // Build and send response
+  int slot = getNetworkSlot(networkId);
+  JsonDocument resDoc;
+  resDoc["status"]  = "saved";
+  resDoc["id"]      = networkId;
+  resDoc["slot"]    = slot;
+  resDoc["ssid"]    = ssid;
+  resDoc["updated"] = isUpdate;  // true = password updated in existing slot
+  sendJsonAsync(request, 200, resDoc);
+}
+
+void IotWebConfApi::handleSetConfigJson(AsyncWebServerRequest* request, const uint8_t* data, size_t len)
+{
+  JsonDocument doc;
+  DeserializationError error = deserializeJson(doc, data, len);
+
+  if (error) {
+    JsonDocument errDoc;
+    errDoc["error"] = "Invalid JSON";
+    sendJsonAsync(request, 400, errDoc);
+    return;
+  }
+
+  JsonObject root = doc.as<JsonObject>();
+
+  // Validate AP/WiFi password length before writing anything (#10) -- the HTML form
+  // validator already enforces this; the JSON API bypassed it entirely.
+  {
+    const char* apPwd = root["iwcAll"]["iwcSys"]["iwcApPassword"] | (const char*)nullptr;
+    const char* wifiPwd =
+        root["iwcAll"]["iwcSys"]["iwcWifi0"]["iwcWifiPassword"] | (const char*)nullptr;
+    if (!iotwebconf::IotWebConf::isValidPasswordLength(apPwd) ||
+        !iotwebconf::IotWebConf::isValidPasswordLength(wifiPwd))
+    {
+      JsonDocument errDoc;
+      errDoc["error"] = "AP/WiFi password must be at least 8 characters, or empty";
+      sendJsonAsync(request, 400, errDoc);
+      return;
+    }
+  }
+
+  _iotWebConf->getRootParameterGroup()->loadFromJson(root);
+
+  _iotWebConf->saveConfig();
+
+  // Runs on the AsyncTCP task -- callback must not touch the radio directly.
+  if (_configSavedCallback) {
+    _configSavedCallback();
+  }
+
+  JsonDocument resDoc;
+  resDoc["status"] = "Saved";
+  sendJsonAsync(request, 200, resDoc);
+}
+
 void IotWebConfApi::registerRoutesAsync()
 {
   // ═══════════════════════════════════════════════════════
@@ -1189,84 +1311,7 @@ void IotWebConfApi::registerRoutesAsync()
     [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       // The body arrives before any middleware could refuse it, so the check lives here.
       if (!authorize(request)) return;
-      if (index == 0) {
-        // Parse request body
-        String body((const char*)data, len);
-        JsonDocument reqDoc;
-        DeserializationError error = deserializeJson(reqDoc, body);
-
-        if (error) {
-          JsonDocument doc;
-          doc["error"] = "Invalid JSON";
-          doc["status"] = "error";
-          sendJsonAsync(request, 400, doc);
-          return;
-        }
-
-        const char* ssid = reqDoc["ssid"];
-        const char* password = reqDoc["password"];
-
-        if (!ssid || strlen(ssid) == 0) {
-          JsonDocument doc;
-          doc["error"] = "SSID field required";
-          doc["status"] = "error";
-          sendJsonAsync(request, 400, doc);
-          return;
-        }
-
-        // Upsert: check if a slot with this SSID already exists
-        bool isSingle = false;
-        void* slotPtr = findNetworkBySsid(ssid, isSingle);
-        bool isUpdate = (slotPtr != nullptr);
-
-        if (!isUpdate) {
-          // No existing slot — find the next empty one
-          slotPtr = findAvailableSlot(isSingle);
-          if (slotPtr == nullptr) {
-            JsonDocument doc;
-            doc["error"] = "Maximum networks reached";
-            doc["status"] = "error";
-            sendJsonAsync(request, 507, doc);
-            return;
-          }
-        }
-
-        // Update slot with credentials.
-        // findNetworkBySsid/findAvailableSlot only return chained slots.
-        ChainedWifiParameterGroup* chainedSlot = (ChainedWifiParameterGroup*)slotPtr;
-        strncpy(chainedSlot->wifiSsid, ssid, IOTWEBCONF_WORD_LEN);
-        chainedSlot->wifiSsid[IOTWEBCONF_WORD_LEN - 1] = '\0';
-
-        if (password) {
-          strncpy(chainedSlot->wifiPassword, password, IOTWEBCONF_PASSWORD_LEN);
-          chainedSlot->wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
-        } else {
-          chainedSlot->wifiPassword[0] = '\0';
-        }
-
-        String networkId = chainedSlot->getId();
-
-        // If this SSID matches iwcWifi0 (the currently active internal slot),
-        // keep its password in sync so forceWifiConnection() uses updated credentials.
-        WifiParameterGroup* primaryWifi = _iotWebConf->getWifiParameterGroup();
-        if (String(primaryWifi->_wifiSsid) == String(ssid) && password) {
-          strncpy(primaryWifi->_wifiPassword, password, IOTWEBCONF_PASSWORD_LEN);
-          primaryWifi->_wifiPassword[IOTWEBCONF_PASSWORD_LEN - 1] = '\0';
-        }
-
-        // Save configuration
-        _iotWebConf->saveConfig();
-
-        // Build and send response
-        int slot = getNetworkSlot(networkId);
-        JsonDocument resDoc;
-        resDoc["status"]  = "saved";
-        resDoc["id"]      = networkId;
-        resDoc["slot"]    = slot;
-        resDoc["ssid"]    = ssid;
-        resDoc["updated"] = isUpdate;  // true = password updated in existing slot
-        sendJsonAsync(request, 200, resDoc);
-      }
+      if (index == 0) handleAddNetworkJson(request, data, len);
     });
 
   // 6. DELETE /api/networks/{id} - Remove network [PHASE 3 NEW]
@@ -1441,49 +1486,7 @@ void IotWebConfApi::registerRoutesAsync()
     [this](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       // The body arrives before any middleware could refuse it, so the check lives here.
       if (!authorize(request)) return;
-      if (index == 0) {
-        String body((const char*)data, len);
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, body);
-
-        if (error) {
-          JsonDocument errDoc;
-          errDoc["error"] = "Invalid JSON";
-          sendJsonAsync(request, 400, errDoc);
-          return;
-        }
-
-        JsonObject root = doc.as<JsonObject>();
-
-        // Validate AP/WiFi password length before writing anything (#10) -- the HTML form
-        // validator already enforces this; the JSON API bypassed it entirely.
-        {
-          const char* apPwd = root["iwcAll"]["iwcSys"]["iwcApPassword"] | (const char*)nullptr;
-          const char* wifiPwd =
-              root["iwcAll"]["iwcSys"]["iwcWifi0"]["iwcWifiPassword"] | (const char*)nullptr;
-          if (!iotwebconf::IotWebConf::isValidPasswordLength(apPwd) ||
-              !iotwebconf::IotWebConf::isValidPasswordLength(wifiPwd))
-          {
-            JsonDocument errDoc;
-            errDoc["error"] = "AP/WiFi password must be at least 8 characters, or empty";
-            sendJsonAsync(request, 400, errDoc);
-            return;
-          }
-        }
-
-        _iotWebConf->getRootParameterGroup()->loadFromJson(root);
-
-        _iotWebConf->saveConfig();
-
-        // Runs on the AsyncTCP task -- callback must not touch the radio directly.
-        if (_configSavedCallback) {
-          _configSavedCallback();
-        }
-
-        JsonDocument resDoc;
-        resDoc["status"] = "Saved";
-        sendJsonAsync(request, 200, resDoc);
-      }
+      if (index == 0) handleSetConfigJson(request, data, len);
     });
 
   // ═══════════════════════════════════════════════════════
