@@ -101,6 +101,20 @@ void IotWebConfApi::registerRoutes()
 
 void IotWebConfApi::loop()
 {
+  // A connect armed just before going OffLine must not fire later: its fallback stage would
+  // overwrite the primary slot without the new credentials ever being tried.
+  if (_iotWebConf->getState() == iotwebconf::OffLine)
+  {
+    _pendingConnect = false;
+    _pendingReconnect = false;
+    _monitoringConnect = false;
+    _awaitingFallback = false;
+    _fallbackSsid = "";
+    _fallbackPassword = "";
+    _scanRequested = false;
+    return;
+  }
+
   // -- Handle async scan results and update cache
   if (_scanRequested)
   {
@@ -1240,6 +1254,14 @@ void IotWebConfApi::registerRoutesAsync()
   // 2. POST /api/scan - Start WiFi scan
   _asyncServer->on("/api/scan", HTTP_POST, [this](AsyncWebServerRequest* request) {
     if (!authorize(request)) return;
+    // scanNetworks() switches STA back on.
+    if (_iotWebConf->getState() == iotwebconf::OffLine)
+    {
+      JsonDocument doc;
+      doc["error"] = "WiFi is off";
+      sendJsonAsync(request, 409, doc);
+      return;
+    }
     WiFi.scanNetworks(true);
     _scanRequested = true;
     _lastScanTime = millis();

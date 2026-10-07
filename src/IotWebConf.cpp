@@ -733,7 +733,15 @@ void IotWebConf::stateChanged(NetworkState oldState, NetworkState newState)
   {
     case OffLine:
       endMDns(oldState);
-      WiFi.disconnect(true);
+      this->stopApInterface();
+      this->_forceApMode = false;
+      this->setApKeepAlive(false);
+      this->_apGraceShutdownTime = 0;
+      // Disconnecting a STA that was never started fails and logs an error (e.g. an OffLine boot).
+      if (WiFi.getMode() & WIFI_STA)
+      {
+        WiFi.disconnect(true);
+      }
       WiFi.mode(WIFI_OFF);
       this->blinkInternal(22000, 1320);
       break;
@@ -1162,7 +1170,11 @@ void IotWebConf::stopAp()
 void IotWebConf::stopApInterface()
 {
   this->_dnsServer->stop();
-  WiFi.softAPdisconnect(true);
+  // softAPdisconnect() re-enables the AP interface before clearing it, so skip it when no AP is up.
+  if (WiFi.getMode() & WIFI_AP)
+  {
+    WiFi.softAPdisconnect(true);
+  }
 }
 
 void IotWebConf::setApKeepAlive(bool keepAlive)
@@ -1230,6 +1242,11 @@ void IotWebConf::doBlink()
 
 void IotWebConf::forceApMode(bool doForce)
 {
+  if (doForce && (this->_state == OffLine))
+  {
+    IOTWEBCONF_DEBUG_LINE(F("Requested forcing AP mode while OffLine; ignored until goOnLine()."));
+    return;
+  }
   if (this->_forceApMode == doForce)
   {
      // Already in the requested mode;
@@ -1306,6 +1323,11 @@ WifiAuthInfo* IotWebConf::handleConnectWifiFailure()
 
 void IotWebConf::forceWifiConnection()
 {
+  if (this->_state == OffLine)
+  {
+    IOTWEBCONF_DEBUG_LINE(F("Requested a WiFi connection while OffLine; ignored until goOnLine()."));
+    return;
+  }
   this->_wifiAuthInfo = {this->_wifiParameters._wifiSsid, this->_wifiParameters._wifiPassword};
   this->changeState(Connecting);
 }
