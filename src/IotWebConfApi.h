@@ -114,6 +114,35 @@ public:
   void handleSetConfigJson(AsyncWebServerRequest* request, const uint8_t* data, size_t len);
 #endif
 
+  // -- Transport-free cores of the network routes, for applications that configure WiFi over
+  // -- another channel (BLE, serial). Call them from doLoop()'s task. They do not authorize.
+  enum class AddNetworkResult : uint8_t { Saved, Updated, NoSsid, SlotsFull };
+  // -- Upserts a chained slot by SSID and saves; does not connect. Inputs longer than the slot
+  // -- buffers (IOTWEBCONF_WORD_LEN / IOTWEBCONF_PASSWORD_LEN - 1) are truncated, so validate first.
+  AddNetworkResult addNetwork(const char* ssid, const char* password, String* idOut = nullptr, int* slotOut = nullptr);
+
+  enum class ConnectRequestResult : uint8_t { Accepted, NotFound, NotConfigured };
+  // -- Arms the deferred connect to a saved slot; loop() fires it ~300 ms later, then falls back
+  // -- to the previous network if it fails. Progress is in connectProgress().
+  ConnectRequestResult requestConnect(const String& networkId, String* ssidOut = nullptr);
+
+  // -- Starts an async scan; false while OffLine (a scan would switch the radio back on).
+  bool startScan();
+  bool scanInProgress() const { return _scanRequested; }
+  size_t cachedNetworkCount() const { return _networkCache.size(); }
+  // -- False past the end. ssid stays valid until the next scan completes.
+  bool cachedNetwork(size_t index, const char** ssid, int* rssi, int* encryption) const;
+
+  struct ConnectProgress {
+    bool          pending;           // armed, not fired yet
+    bool          monitoring;        // waiting up to 30 s for the target network
+    bool          awaitingFallback;  // target failed, rejoining the previous network
+    const String* lastSsid;
+    const String* lastResult;        // "ok" | "failed" | "fallback_ok" | "ap_mode" | ""
+    unsigned long lastTimestamp;     // millis() of lastResult, 0 = none yet
+  };
+  ConnectProgress connectProgress() const;
+
   // -- Helper to register all API routes at once.
   // -- Example: api.registerRoutes();
   // -- If constructed with AsyncWebServer, this auto-dispatches to registerRoutesAsync().
