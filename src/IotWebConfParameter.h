@@ -294,6 +294,9 @@ public:
     const char* defaultValue = nullptr,
     const char* placeholder = nullptr,
     const char* customHtml = "ondblclick=\"pw(this.id)\"");
+#ifdef IOTWEBCONF_ENABLE_JSON
+  virtual void saveToJson(JsonObject& jsonObject) override;
+#endif
 
 protected:
   // Overrides

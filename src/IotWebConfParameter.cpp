@@ -360,6 +360,14 @@ void PasswordParameter::debugTo(Stream* out)
 #endif
 }
 
+#ifdef IOTWEBCONF_ENABLE_JSON
+// A blank value round-trips safely: update() keeps the stored password when given "".
+void PasswordParameter::saveToJson(JsonObject& jsonObject)
+{
+  jsonObject[this->getId()] = "";
+}
+#endif
+
 void PasswordParameter::update(String newValue)
 {
   Parameter* current = this;

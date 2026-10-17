@@ -694,6 +694,13 @@ using CharArrayDataType<len>::CharArrayDataType;
     this->customHtml = _customHtmlPwd;
   }
 
+#ifdef IOTWEBCONF_ENABLE_JSON
+  void saveToJson(JsonObject& jsonObject) override
+  {
+    jsonObject[this->getId()] = "";
+  }
+#endif
+
   void debugTo(Stream* out)
   {
     out->print("'");
